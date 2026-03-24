@@ -1,0 +1,33 @@
+{
+  "name": "sheva-platform",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "apps/*",
+    "Sheva/packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "dev:web": "npm run dev -w @sheva/web",
+    "dev:web:3004": "npm run dev -w @sheva/web",
+    "dev:api": "npm run dev -w @sheva/api",
+    "dev:basket": "npm run dev:basket -w @sheva/api",
+    "dev:api:basket": "npm run dev:basket -w @sheva/api",
+    "dev:api:4003": "npm run dev -w @sheva/api",
+    "prisma:pull": "npm run prisma:pull -w @sheva/api",
+    "prisma:generate": "npm run prisma:generate -w @sheva/api",
+    "prisma:migrate": "npm run prisma:migrate -w @sheva/api",
+    "prisma:seed": "npm run prisma:seed -w @sheva/api"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  }
+}

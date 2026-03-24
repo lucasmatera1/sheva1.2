@@ -1,0 +1,13 @@
+{
+  "name": "GT Serie A 4D Telegram",
+  "isActive": true,
+  "transportType": "telegram",
+  "leagueType": "GT LEAGUE",
+  "methodCode": "(4D)",
+  "series": "A",
+  "apxMin": 63,
+  "minOccurrences": 8,
+  "windowDays": 30,
+  "recipients": ["123456789"],
+  "note": "Envio de alerta pelo bot do Telegram para chat privado"
+}

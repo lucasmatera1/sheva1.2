@@ -1,0 +1,15 @@
+{
+  "name": "GT Serie A 4D+ acima de 63%",
+  "isActive": true,
+  "leagueType": "GT LEAGUE",
+  "methodCode": "(4D+)",
+  "series": "A",
+  "apxMin": 63,
+  "minOccurrences": 8,
+  "windowDays": 30,
+  "recipients": [
+    "+5511999999999"
+  ],
+  "webhookUrl": "https://seu-bridge-whatsapp.exemplo/alerts/methods",
+  "note": "Primeira regra para GT Serie A no metodo 4D+"
+}

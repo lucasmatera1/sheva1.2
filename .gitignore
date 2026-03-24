@@ -1,0 +1,49 @@
+# ─── Dependencies ────────────────────────────────────────
+node_modules/
+.venv/
+.venv_old/
+venv/
+
+# ─── Build Outputs ───────────────────────────────────────
+.turbo/
+.next/
+dist/
+*.tsbuildinfo
+coverage/
+
+# ─── Environment / Secrets ───────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Database ────────────────────────────────────────────
+apps/api/prisma/dev.db
+*.sqlite
+*.db
+
+# ─── Logs ────────────────────────────────────────────────
+*.log
+*.out
+logs/
+
+# ─── Temp Files ──────────────────────────────────────────
+tmp/
+tmp-*.json
+
+# ─── Data Exports (generated) ───────────────────────────
+db-export/data/
+*.csv
+!db-export/inventory.csv
+!db-export/schema.csv
+
+# ─── Sessions (Telegram/Browser) ────────────────────────
+*.session
+*.session-journal
+
+# ─── Screenshots / Debug ────────────────────────────────
+*.png
+*.jpg
+
+# ─── OS / IDE ────────────────────────────────────────────
+.DS_Store
+Thumbs.db

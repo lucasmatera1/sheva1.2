@@ -1,0 +1,52 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "API: Debug Server",
+			"type": "pwa-node",
+			"request": "launch",
+			"cwd": "${workspaceFolder}/apps/api",
+			"runtimeExecutable": "node",
+			"runtimeArgs": [
+				"--import",
+				"tsx",
+				"src/server.ts"
+			],
+			"envFile": "${workspaceFolder}/.env",
+			"console": "integratedTerminal",
+			"internalConsoleOptions": "neverOpen",
+			"skipFiles": [
+				"<node_internals>/**"
+			]
+		},
+		{
+			"name": "Web: Debug Next.js",
+			"type": "node-terminal",
+			"request": "launch",
+			"command": "npm run dev:web",
+			"cwd": "${workspaceFolder}",
+			"serverReadyAction": {
+				"action": "startDebugging",
+				"name": "Web: Open Browser",
+				"pattern": "- Local:\\s+(https?://.+)"
+			}
+		},
+		{
+			"name": "Web: Open Browser",
+			"type": "pwa-msedge",
+			"request": "launch",
+			"url": "http://localhost:3004",
+			"webRoot": "${workspaceFolder}/apps/web"
+		}
+	],
+	"compounds": [
+		{
+			"name": "Full Stack: Debug",
+			"configurations": [
+				"API: Debug Server",
+				"Web: Debug Next.js"
+			],
+			"stopAll": true
+		}
+	]
+}

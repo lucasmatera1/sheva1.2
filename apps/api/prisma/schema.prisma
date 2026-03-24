@@ -1,0 +1,585 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model dados_ult30d_2derrotas {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model dados_ult30d_3derrotas {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model dados_ult30d_ht_metodo {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          Float?
+  lucro       String? @db.Text
+  count       BigInt?
+  roi         String? @db.Text
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model dados_ult30d_metodo {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model dados_ult30d_metodo3dif {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model dados_ult30d_metodoantigo2d {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model dados_ult30d_metodoantigo3d {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model dados_ult30d_primeirojogo {
+  player1                   String? @db.Text
+  player2                   String? @db.Text
+  total                     BigInt?
+  percent_jog1              Float?
+  percent_jog2              Float?
+  dif                       Float?
+  favorito                  String? @db.Text
+  total_primeiroJogo        BigInt?
+  percent_jog1_primeiroJogo Float?
+  percent_jog2_primeiroJogo Float?
+  dif_primeiroJogo          Float?
+  favorito_primeiroJogo     String? @db.Text
+  HC                        String? @db.Text
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model dados_ult30d_troca {
+  player1 String? @db.Text
+  player2 String? @db.Text
+  new_HC  String? @db.Text
+  lucro   Float?
+  count   BigInt?
+  roi     Float?
+
+  @@ignore
+}
+
+model ebattle_ebattleapi_fixtures {
+  id            Int      @id @default(autoincrement())
+  id_fixture    Int      @unique(map: "id_fixture")
+  id_season     Int
+  season_name   String   @db.VarChar(150)
+  match_kickoff DateTime @db.DateTime(0)
+  match_status  Int
+  home_player   String   @db.VarChar(100)
+  home_team     String   @db.VarChar(100)
+  home_score_ht Int?
+  home_score_ft Int?
+  away_player   String   @db.VarChar(100)
+  away_team     String   @db.VarChar(100)
+  away_score_ht Int
+  away_score_ft Int
+  match_events  String?  @db.LongText
+  createdAt     DateTime @default(now()) @db.DateTime(0)
+}
+
+model ebattle_ebattleapi_futurematches {
+  id_fixture    Int      @id
+  id_season     Int
+  season_name   String   @db.VarChar(150)
+  match_kickoff DateTime @db.DateTime(0)
+  home_player   String   @db.VarChar(100)
+  home_team     String   @db.VarChar(100)
+  away_player   String   @db.VarChar(100)
+  away_team     String   @db.VarChar(100)
+  createdAt     DateTime @default(now()) @db.DateTime(0)
+}
+
+model gt_dados_ht {
+  event_id       BigInt    @id
+  home_team      String?   @db.VarChar(255)
+  away_team      String?   @db.VarChar(255)
+  resultado_ht   String?   @db.VarChar(50)
+  home_score_ht  Int?
+  away_score_ht  Int?
+  data_hora_jogo String?   @db.VarChar(255)
+  category_name  String?   @db.VarChar(255)
+  detectado_em   DateTime? @db.DateTime(0)
+}
+
+model gt_dados_primeirogol {
+  event_id            BigInt    @id
+  home_team           String?   @db.VarChar(255)
+  away_team           String?   @db.VarChar(255)
+  primeiro_gol_time   String?   @db.VarChar(255)
+  primeiro_gol_tempo  String?   @db.VarChar(50)
+  placar_primeiro_gol String?   @db.VarChar(50)
+  data_hora_jogo      String?   @db.VarChar(255)
+  category_name       String?   @db.VarChar(255)
+  detectado_em        DateTime? @db.DateTime(0)
+}
+
+model gt_gtapi_fixtures {
+  id            Int      @id @default(autoincrement())
+  id_fixture    Int      @unique(map: "id_fixture")
+  id_season     Int
+  match_kickoff DateTime @db.DateTime(0)
+  match_status  Int
+  home_player   String   @db.VarChar(100)
+  home_team     String   @db.VarChar(100)
+  home_score_ht Int?
+  home_score_ft Int?
+  away_player   String   @db.VarChar(100)
+  away_team     String   @db.VarChar(100)
+  away_score_ht Int?
+  away_score_ft Int?
+  match_events  String?  @db.LongText
+  createdAt     DateTime @default(now()) @db.DateTime(0)
+  grupo         String?  @db.VarChar(1)
+}
+
+model gt_gtapi_futurematches {
+  id_fixture    Int      @id
+  id_season     Int
+  match_kickoff DateTime @db.DateTime(0)
+  home_player   String   @db.VarChar(100)
+  home_team     String   @db.VarChar(100)
+  away_player   String   @db.VarChar(100)
+  away_team     String   @db.VarChar(100)
+  createdAt     DateTime @default(now()) @db.DateTime(0)
+  group_name    String?  @db.VarChar(10)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model gt_odds_mlht {
+  event_id        Int
+  datetime        DateTime @db.DateTime(0)
+  market          String   @db.Text
+  home_player     String   @db.Text
+  away_player     String   @db.Text
+  full_score      String   @db.Text
+  odds_home       Float
+  odds_draw       Float
+  odds_away       Float
+  market_datetime DateTime @db.DateTime(0)
+  player1         String?  @db.VarChar(100)
+  player2         String?  @db.VarChar(100)
+  player1_team    String?  @db.VarChar(100)
+  player2_team    String?  @db.VarChar(100)
+  player1_odd     Decimal? @db.Decimal(10, 2)
+  player2_odd     Decimal? @db.Decimal(10, 2)
+
+  @@ignore
+}
+
+model h2h_ebasket_fixtures {
+  id            Int      @id @default(autoincrement())
+  id_fixture    Int      @unique(map: "id_fixture")
+  id_season     Int
+  match_kickoff DateTime @db.DateTime(0)
+  match_status  Int
+  home_player   String?  @db.VarChar(100)
+  home_team     String?  @db.VarChar(100)
+  home_score_ht Int?
+  home_score_ft Int?
+  away_player   String   @db.VarChar(100)
+  away_team     String   @db.VarChar(100)
+  away_score_ht Int?
+  away_score_ft Int?
+  match_events  String?  @db.LongText
+  createdAt     DateTime @default(now()) @db.DateTime(0)
+}
+
+model h2h_futurematches {
+  id_fixture    String   @id @db.VarChar(11)
+  match_kickoff DateTime @db.DateTime(0)
+  home_player   String   @db.VarChar(100)
+  home_team     String   @db.VarChar(100)
+  away_player   String   @db.VarChar(100)
+  away_team     String   @db.VarChar(100)
+  createdAt     DateTime @default(now()) @db.DateTime(0)
+}
+
+model h2h_h2hapi_fixtures {
+  id                Int      @id @default(autoincrement())
+  id_fixture        String   @unique(map: "id_fixture") @db.VarChar(12)
+  id_season         Int
+  match_kickoff     DateTime @db.DateTime(0)
+  match_status      Int
+  home_player       String?  @db.VarChar(100)
+  home_team         String?  @db.VarChar(100)
+  home_score_ht     Int?
+  home_score_ft     Int?
+  away_player       String   @db.VarChar(100)
+  away_team         String   @db.VarChar(100)
+  away_score_ht     Int?
+  away_score_ft     Int?
+  match_events      String?  @db.LongText
+  createdAt         DateTime @default(now()) @db.DateTime(0)
+  first_goal_time   String?  @db.VarChar(10)
+  first_goal_player String?  @db.VarChar(20)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model hcs_ebattle {
+  player1 String? @db.Text
+  player2 String? @db.Text
+  HC      String? @db.Text
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model hcs_gtleague {
+  player1 String? @db.Text
+  player2 String? @db.Text
+  HC      String? @db.Text
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model hcs_h2h {
+  player1 String? @db.Text
+  player2 String? @db.Text
+  HC      String? @db.Text
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model hcs_volta {
+  player1 String? @db.Text
+  player2 String? @db.Text
+  HC      String? @db.Text
+
+  @@ignore
+}
+
+model player_daily_history_session_matches {
+  id            BigInt                                            @id @default(autoincrement()) @db.UnsignedBigInt
+  session_id    BigInt                                            @db.UnsignedBigInt
+  match_order   Int                                               @db.UnsignedSmallInt
+  kickoff_utc   DateTime                                          @db.DateTime(0)
+  kickoff_local DateTime                                          @db.DateTime(0)
+  opponent      String                                            @db.VarChar(255)
+  goals_for     Int                                               @db.SmallInt
+  goals_against Int                                               @db.SmallInt
+  result        player_daily_history_session_matches_result
+  championship  player_daily_history_session_matches_championship
+  created_at    DateTime                                          @default(now()) @db.Timestamp(0)
+
+  @@unique([session_id, match_order], map: "uq_session_match_order")
+  @@index([kickoff_local], map: "idx_kickoff_local")
+  @@index([session_id], map: "idx_session_id")
+}
+
+model player_daily_history_sessions {
+  id                  BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  player              String   @db.VarChar(255)
+  session_start_utc   DateTime @db.DateTime(0)
+  session_end_utc     DateTime @db.DateTime(0)
+  session_start_local DateTime @db.DateTime(0)
+  session_end_local   DateTime @db.DateTime(0)
+  session_day_local   DateTime @db.Date
+  total_matches       Int      @db.UnsignedInt
+  wins                Int      @db.UnsignedInt
+  draws               Int      @db.UnsignedInt
+  losses              Int      @db.UnsignedInt
+  win_rate            Decimal  @db.Decimal(5, 2)
+  created_at          DateTime @default(now()) @db.Timestamp(0)
+  updated_at          DateTime @default(now()) @db.Timestamp(0)
+
+  @@unique([player, session_start_utc], map: "uq_player_session_start")
+  @@index([player, session_day_local], map: "idx_player_day")
+  @@index([player, session_start_utc], map: "idx_player_start")
+  @@index([session_day_local], map: "idx_session_day_local")
+  @@index([session_start_utc], map: "idx_session_start_utc")
+}
+
+model site_access_users {
+  email              String                   @id @db.VarChar(255)
+  name               String?                  @db.VarChar(255)
+  role               site_access_users_role   @default(user)
+  status             site_access_users_status @default(pending)
+  created_at         DateTime                 @default(now()) @db.Timestamp(0)
+  updated_at         DateTime                 @default(now()) @db.Timestamp(0)
+  last_login_at      DateTime?                @db.DateTime(0)
+  can_access_methods Boolean                  @default(false)
+  can_view_winrate   Boolean                  @default(false)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model volta_dados_ult30d_2derrotas {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model volta_dados_ult30d_3derrotas {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model volta_dados_ult30d_metodo {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model volta_dados_ult30d_metodo3dif {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model volta_dados_ult30d_metodoantigo2d {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model volta_dados_ult30d_metodoantigo3d {
+  new_player1 String? @db.Text
+  new_player2 String? @db.Text
+  HC          String? @db.Text
+  lucro       Float?
+  count       BigInt?
+  roi         Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model volta_dados_ult30d_primeirojogo {
+  player1                   String? @db.Text
+  player2                   String? @db.Text
+  total                     BigInt?
+  percent_jog1              Float?
+  percent_jog2              Float?
+  dif                       Float?
+  favorito                  String? @db.Text
+  total_primeiroJogo        BigInt?
+  percent_jog1_primeiroJogo Float?
+  percent_jog2_primeiroJogo Float?
+  dif_primeiroJogo          Float?
+  favorito_primeiroJogo     String? @db.Text
+  HC                        String? @db.Text
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model volta_dados_ult30d_troca {
+  player1 String? @db.Text
+  player2 String? @db.Text
+  new_HC  String? @db.Text
+  lucro   Float?
+  count   BigInt?
+  roi     Float?
+
+  @@ignore
+}
+
+model volta_ebattleapi_fixtures {
+  id            Int      @id @default(autoincrement())
+  id_fixture    Int      @unique(map: "id_fixture")
+  id_season     Int
+  match_kickoff DateTime @db.DateTime(0)
+  match_status  Int
+  home_player   String   @db.VarChar(100)
+  home_team     String   @db.VarChar(100)
+  home_score_ht Int?
+  home_score_ft Int?
+  away_player   String   @db.VarChar(100)
+  away_team     String   @db.VarChar(100)
+  away_score_ht Int
+  away_score_ft Int
+  match_events  String?  @db.LongText
+  createdAt     DateTime @default(now()) @db.DateTime(0)
+}
+
+model volta_ebattleapi_futurematches {
+  id_fixture    Int      @id
+  id_season     Int
+  season_name   String   @db.VarChar(150)
+  match_kickoff DateTime @db.DateTime(0)
+  home_player   String   @db.VarChar(100)
+  home_team     String   @db.VarChar(100)
+  away_player   String   @db.VarChar(100)
+  away_team     String   @db.VarChar(100)
+  createdAt     DateTime @default(now()) @db.DateTime(0)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model player_streaks_2d {
+  player                   String?   @db.Text
+  streak_end_match_kickoff DateTime? @db.DateTime(0)
+  streak_len               BigInt?
+  observed_streak          BigInt?
+  next_match_kickoff       DateTime? @db.DateTime(0)
+  next_match_return        Float?
+  next_match_status        BigInt?
+  next_match_HC            Float?
+  cutoff_date              DateTime? @db.Date
+  player_aproveitamento    Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model player_streaks_3d {
+  player                   String?   @db.Text
+  streak_end_match_kickoff DateTime? @db.DateTime(0)
+  streak_len               BigInt?
+  next_match_kickoff       DateTime? @db.DateTime(0)
+  next_match_return        Float?
+  next_match_status        BigInt?
+  next_match_HC            Float?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model player_streaks_4d {
+  player                   String?   @db.Text
+  streak_end_match_kickoff DateTime? @db.DateTime(0)
+  streak_len               BigInt?
+  next_match_kickoff       DateTime? @db.DateTime(0)
+  next_match_return        Float?
+  next_match_status        BigInt?
+  next_match_HC            Float?
+
+  @@ignore
+}
+
+model h2h_ebasket_fixtures_new {
+  id            Int      @id @default(autoincrement())
+  id_fixture    String?  @unique(map: "id_fixture") @db.VarChar(11)
+  id_season     Int
+  match_kickoff DateTime @db.DateTime(0)
+  match_status  Int
+  home_player   String?  @db.VarChar(100)
+  home_team     String?  @db.VarChar(100)
+  home_score_ht Int?
+  home_score_ft Int?
+  away_player   String   @db.VarChar(100)
+  away_team     String   @db.VarChar(100)
+  away_score_ht Int?
+  away_score_ft Int?
+  match_events  String?  @db.LongText
+  createdAt     DateTime @default(now()) @db.DateTime(0)
+}
+
+enum site_access_users_role {
+  admin
+  user
+}
+
+enum site_access_users_status {
+  pending
+  approved
+  blocked
+}
+
+enum player_daily_history_session_matches_result {
+  W
+  D
+  L
+}
+
+enum player_daily_history_session_matches_championship {
+  VOLTA
+  EBATTLE
+  GT_LEAGUE @map("GT LEAGUE")
+}
