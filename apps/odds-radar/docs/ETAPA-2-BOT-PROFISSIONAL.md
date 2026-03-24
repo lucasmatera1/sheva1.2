@@ -1,6 +1,6 @@
 # 🚀 Etapa 2 — Bot Profissional (API Reversa Bet365)
 
-> Última atualização: 2026-03-24 (sessão 4d — **addbet endpoint DESCOBERTO, fluxo completo mapeado**)
+> Última atualização: 2026-03-24 (Session 5b — **APOSTA ACEITA via UI Automation, receipt CF5743181771F**)
 
 ## Contexto
 
@@ -500,13 +500,152 @@ betGuid: this.document.get("bg")
 
 ---
 
+### Fase 7 — UI Automation Completa ✅ COMPLETA (Session 4e + 5)
+
+> **DECISÃO FINAL:** API-only (curl_cffi, fetch injection, route.fetch) → TODAS falharam (sr=-1 SEMPRE).
+> O JS interno do bet365 ("Loader") adiciona tokens/headers que não conseguimos replicar.
+> **UI automation via page.mouse.click() é a ÚNICA abordagem que funciona (sr=0).**
+> Mesma estratégia que Tippy.bet (Electron/Chromium embedded com automação UI).
+
+#### Abordagens testadas e rejeitadas (histórico completo)
+
+| # | Método | Resultado | Problema |
+|---|---|---|---|
+| 1 | `route.fetch()` (Playwright) | HTTP 403 | Cloudflare TLS mismatch |
+| 2 | `route.continue_()` (Playwright) | HTTP 200, sr=-1 | App-level rejection |
+| 3 | WS standalone (`ws_client.py`) | HTTP 403/400 | Sem cookies browser |
+| 4 | `curl_cffi PlaceBet` (impersonate) | HTTP 200, sr=-1 | Tokens internos Loader ausentes |
+| 5 | `page.evaluate(fetch(...))` + bg/cc/pc | HTTP 200, sr=-1 | Idem — Loader não usado |
+| 6 | **`page.mouse.click()` UI automation** | **sr=0 ✅** | **FUNCIONA** |
+
+#### UIBetPlacer (`src/betting/ui_placer.py`)
+
+Módulo completo de automação UI com eventos trusted CDP:
+
+**Regras de ouro:**
+- SEMPRE `page.mouse.click()` para botões/odds (trusted CDP events → `isTrusted:true`)
+- SEMPRE `locator.fill()` para inputs de texto (imune a foco/mouse)
+- NUNCA `dispatchEvent` click (isTrusted:false → bet365 ignora)
+- NUNCA `page.goto()` dentro do bet365 (mata WebSocket connections)
+
+**Fluxo completo:**
+```
+1. clean_betslip()     → Remove seleções antigas do betslip
+2. navigate_to_fixture() → window.location.hash = '#/IP/EV{id}' (3 retries + fallback #/IP/B18)
+3. find_odds_cell()    → Busca market section + handicap line + home/away position
+4. click_odds()        → page.mouse.click(x, y) → trusted CDP event
+5. wait_addbet()       → Intercepta response addbet (bg, cc, pc, sr)
+6. fill_stake()        → locator.fill('.bsf-StakeBox_StakeValue-input', value)
+7. click_place_bet()   → Polling 10s, detecta Accept (odds mudaram), 6+ selectors
+8. wait_placebet()     → Intercepta response placebet (sr, cs, receipt)
+9. handle_odds_changed() → Auto-aceita mudanças de odds (seletores bsf/bss + texto PT-BR)
+10. close_betslip()    → Fecha receipt/betslip
+```
+
+**Seletores mapeados:**
+| Elemento | Seletor principal | Alternativas |
+|---|---|---|
+| Stake input | `.bsf-StakeBox_StakeValue-input` | `.bss-StakeBox_StakeValue`, `[class*="StakeBox"][contenteditable]` |
+| Place Bet | `.bsf-PlaceBetButton` | `.bss-PlaceBetButton`, `[class*="PlaceBet"]`, `.bss-DefaultContent_PlaceBet`, `[class*="BetslipButton"]` |
+| Odds cell | `[class*="Participant"][class*="Odds"]` | — |
+| Receipt | `.bsf-ReceiptContent`, `.bs-Receipt` | — |
+| Error msg | `.bsf-ErrorMessage`, `.bsf-NormalMessage` | — |
+| Accept odds | `.bsf-AcceptButton`, `.bss-AcceptButton` | `[class*="AcceptAny"]`, `[class*="Accept"][class*="Button"]` |
+| Remove sel | `[class*="RemoveSelection"]` | `[class*="DeleteSelection"]`, `.bss-RemoveButton` |
+
+**Testes Live (apostas reais R$1):**
+
+| Teste | Data | Receipt | sr | Detalhes |
+|---|---|---|---|---|
+| Session 4e (headless=false) | 2026-03-24 | XF9748854581F | 0 | Primeiro sr=0 confirmado! |
+| Session 5b Test 1 (headless=true) | 2026-03-24 | — | -1 | addbet OK, Place Bet não encontrado |
+| Session 5b Test 2 (headless=true) | 2026-03-24 | — | -1 | addbet OK, odds mudaram, Accept não detectado |
+| **Session 5b Test 3 (headless=true)** | **2026-03-24** | **CF5743181771F** | **0** | **SUCESSO! Odds 20/23, .bsf-PlaceBetButton** |
+
+#### Descoberta crítica: BROWSER_HEADLESS=true é OBRIGATÓRIO
+
+| Modo | gwt Token | Resultado |
+|---|---|---|
+| `BROWSER_HEADLESS=false` (visível) | ❌ NUNCA aparece | gwt AUSENTE → apostas podem falhar |
+| `BROWSER_HEADLESS=true` (invisível) | ✅ SEMPRE aparece | gwt OK → fluxo completo funciona |
+
+**Motivo:** O GeoComply JavaScript se comporta diferente em modo headless vs visible no Camoufox.
+Em modo headless, o GeoComply consegue gerar o token `gwt` normalmente.
+Em modo visible, algo no rendering pipeline interfere com o GeoComply.
+
+**Bônus:** Com headless=true, o usuário pode usar o PC normalmente sem interferir no bot.
+
+---
+
+### Fase 8 — Setup Profissional do Ambiente ✅ COMPLETA (Session 5 + 5b)
+
+#### Ferramentas instaladas
+
+| Ferramenta | Versão | Path |
+|---|---|---|
+| Git | 2.53.0 | `C:\Program Files\Git\cmd\git.exe` |
+| Docker Desktop | 29.2.1 | Instalado via winget (WSL2 + VT-x habilitado no BIOS) |
+| MySQL Server | 8.4.8 | `C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe` |
+| Node.js | 24.14.0 | Já instalado |
+| Python | 3.12.10 | `C:\Users\lucas\AppData\Local\Programs\Python\Python312\python.exe` |
+
+#### Virtual Environment (recriado Session 5b)
+
+O venv anterior apontava para Python 3.14 inexistente → recriado com Python 3.12:
+
+```
+D:\Sheva\.venv\Scripts\python.exe
+```
+
+**Pacotes instalados:**
+loguru, camoufox, curl-cffi, python-dotenv, telethon, httpx, playwright, websockets,
+click, aiosqlite, apscheduler, rich, watchdog
+
+#### VS Code Extensions
+
+Python, Pylance, Debugpy, Prisma, Prettier, ESLint, Tailwind CSS IntelliSense, Docker, GitLens
+
+#### VS Code Settings (`D:\Sheva\.vscode\settings.json`)
+
+- `python.defaultInterpreterPath` → `.venv/Scripts/python.exe`
+- `python.analysis.extraPaths` → `apps/odds-radar` (resolve imports `src.*`)
+- `python.analysis.typeCheckingMode` → `basic`
+- `formatOnSave` → Python (black), TypeScript (prettier), Prisma
+- `files.exclude` → `__pycache__`, `.turbo`, `node_modules`, `*.pyc`
+- `search.exclude` → `node_modules`, `.venv`, `dist`, `.next`, `.turbo`
+
+#### Erros Pylance: 25 → 0
+
+Antes: 25 erros de import (todas libs não encontradas no venv quebrado)
+Depois: 0 erros reais (1 import legado em script de debug — inofensivo)
+
+#### Git Repository
+
+```
+D:\Sheva\.git (inicializado Session 5b)
+```
+
+**Commit baseline:** `d945ac4` — 276 arquivos
+**Commit config:** `a954f01` — VS Code settings
+
+**.gitignore robusto cobrindo:**
+- `.venv/`, `node_modules/` — dependências
+- `.env`, `.env.*` — credenciais
+- `*.session`, `*.session-journal` — sessões Telegram/browser
+- `tmp/`, `tmp-*.json`, `*.log`, `*.out` — temporários
+- `logs/`, `db-export/data/`, `*.csv` — dados gerados
+- `*.png`, `*.jpg` — screenshots de debug
+- `.turbo/`, `.next/`, `dist/`, `*.tsbuildinfo` — build outputs
+
+---
+
 ## Desafios Conhecidos
 
-### GeoComply (RESOLVIDO — abordagem híbrida)
-- ~~Possível necessidade de eliminar browser~~ → Browser mantido para GeoComply
-- `gwt`/`swt` são tokens geo-validados pelo browser JS
-- Rotation automática, mas pode expirar → auto-refresh a cada 120s
-- GeoComply URLs bloqueadas por route interception (geo stealth funciona)
+### GeoComply (RESOLVIDO — headless=true)
+- Browser Camoufox em modo headless gera `gwt`/`swt` automaticamente
+- ~~Em modo visible, gwt NUNCA aparece~~ → headless resolve
+- Rotation automática pelo GeoComply JS interno
+- Não precisa mais de auto-refresh 120s (token gerenciado nativamente)
 
 ### Ofuscação
 - Bet365 ofusca nomes de endpoints e payloads → mapeado via traffic analysis
@@ -514,10 +653,82 @@ betGuid: this.document.get("bg")
 - WS usa formato proprietário (NÃO JSON) → parser com 87+ endpoints implementado
 - Formato pode mudar periodicamente → requer manutenção
 
-### Anti-Bot (RESOLVIDO — curl_cffi)
-- ~~httpx 403~~ → ~~route.fetch 200 mas app error~~ → **curl_cffi impersonate="firefox135" HTTP 200 ✅**
-- Rate limiting agressivo em requests diretos → mitigado pelo SafetyGuard (5 bets/hora max)
-- Cloudflare `__cf_bm` cookie → extraído via capture_tokens.py
+### Anti-Bot (RESOLVIDO — UI automation)
+- ~~httpx 403~~ → ~~route.fetch 200 mas app error~~ → ~~curl_cffi sr=-1~~ → **UI automation sr=0 ✅**
+- O JS interno ("Loader") adiciona tokens que não conseguimos replicar via API
+- UI automation usa o Loader nativo → funciona perfeitamente
+- Rate limiting do bet365 → mitigado pelo SafetyGuard (5 bets/hora max)
+
+### Navegação hash (PARCIAL)
+- `window.location.hash = '#/IP/EV{fixture_id}'` nem sempre funciona (hash fica em #/IP/FAV)
+- Odds são encontradas mesmo sem navegação correta (fixture visível na view atual)
+- Navigate retry com 3 tentativas + fallback #/IP/B18 implementado
+- Não é bloqueante — aposta funciona sem navegação
+
+---
+
+## Pipeline Atual (Definitivo — Session 5b)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Camoufox HEADLESS                             │
+│  auto-login(locator.fill) → #/IP/B18 (eSports In-Play)         │
+│  → gwt aparece automaticamente (headless mode)                  │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+         ┌───────────┼───────────┐
+         │           │           │
+    ┌────▼────┐ ┌────▼────┐ ┌───▼────────┐
+    │ WS Feed │ │ Tokens  │ │ Response   │
+    │ (odds)  │ │ (auto)  │ │ Interceptor│
+    └────┬────┘ └─────────┘ └───┬────────┘
+         │                      │
+    ┌────▼──────────────────────▼──────────┐
+    │           FixtureMap                  │
+    │  player → (fixture_id, selection_id,  │
+    │            odds_frac, odds_dec, hcap) │
+    └────────────────┬─────────────────────┘
+                     │
+    ┌────────────────▼─────────────────────┐
+    │        Telegram (telethon)            │
+    │  parse_signal() → player + hcap + odd│
+    └────────────────┬─────────────────────┘
+                     │
+    ┌────────────────▼─────────────────────┐
+    │          SafetyGuard                  │
+    │  check(stake, odd) → Allow/Reject    │
+    └────────────────┬─────────────────────┘
+                     │
+    ┌────────────────▼─────────────────────┐
+    │         UIBetPlacer                   │
+    │  clean → navigate → find_odds →      │
+    │  click(mouse) → addbet(sr=0) →       │
+    │  fill_stake(locator) →               │
+    │  handle_odds_changed(auto-accept) →  │
+    │  click_place_bet(mouse) →            │
+    │  placebet(sr=0) → receipt ✅          │
+    └──────────────────────────────────────┘
+```
+
+## Receipts Confirmados
+
+| Receipt | Data | Odds | Stake | Método |
+|---|---|---|---|---|
+| XF9748854581F | 2026-03-24 | — | R$1 | UI automation (headless=false) |
+| CF5743181771F | 2026-03-24 | 20/23 | R$1 | UI automation (headless=true) |
+
+---
+
+## Próximos Passos (Etapa 3)
+
+1. **Retry com backoff** — Se sr≠0, re-tentar com delay exponencial
+2. **Keepalive/heartbeat** — Manter browser e WS ativos 24h
+3. **SQLite persistence** — Histórico de apostas, P&L, logs
+4. **Stake jitter** — Variação ±5% para não parecer bot
+5. **Supervisor** — Watchdog que reinicia se browser crashar
+6. **Rich CLI** — Dashboard em terminal com status ao vivo
+7. **Bankroll tracker** — Controle de banca com unidades (µ)
+8. **Multi-fixture** — Apostar em múltiplos jogos simultâneos
 - `tagType=WindowsDesktopBrowser` no payload → mantém fingindo browser
 
 ### WS Odds Protocol (DECODIFICADO)
