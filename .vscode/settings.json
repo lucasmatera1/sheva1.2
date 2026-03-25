@@ -44,5 +44,14 @@
     "**/dist": true,
     "**/.next": true,
     "**/.turbo": true
+  },
+
+  // Copilot — terminais abrem inline no chat
+  "github.copilot.chat.runCommand.terminalChatParticipant": true,
+  "chat.tools.terminal.autoApprove": {
+    "/^& \"d:\\\\Sheva\\\\\\.venv\\\\Scripts\\\\python\\.exe\" \"d:\\\\Sheva\\\\apps\\\\odds-radar\\\\scripts\\\\test_multi_bet\\.py\" --count 3 --stake 1\\.00 --delay 5$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
   }
 }

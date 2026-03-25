@@ -1,6 +1,6 @@
 # 🚀 Etapa 2 — Bot Profissional (API Reversa Bet365)
 
-> Última atualização: 2026-03-24 (Session 5b — **APOSTA ACEITA via UI Automation, receipt CF5743181771F**)
+> Última atualização: 2026-03-25 (Session 6 — **3/3 apostas aceitas! Multi-bet sequencial + Sessão persistente + Spectator + Warm-up Lembrar + Auto-accept odds**)
 
 ## Contexto
 
@@ -712,23 +712,176 @@ D:\Sheva\.git (inicializado Session 5b)
 
 ## Receipts Confirmados
 
-| Receipt | Data | Odds | Stake | Método |
-|---|---|---|---|---|
-| XF9748854581F | 2026-03-24 | — | R$1 | UI automation (headless=false) |
-| CF5743181771F | 2026-03-24 | 20/23 | R$1 | UI automation (headless=true) |
+| Receipt | Data | Odds | Stake | Método | Tempo |
+|---|---|---|---|---|---|
+| XF9748854581F | 2026-03-24 | — | R$1 | UI automation (headless=false) | — |
+| CF5743181771F | 2026-03-24 | 20/23 | R$1 | UI automation (headless=true) | — |
+| HF2294277291F | 2026-03-25 | — | R$1 | test_multi_bet (bet 1/3) | — |
+| HF6991804751F | 2026-03-25 | — | R$1 | test_multi_bet (bet 1/3) | — |
+| TF4453228601F | 2026-03-25 | — | R$1 | test_multi_bet (bet 1/3) | — |
+| LP9247965911F | 2026-03-25 | 1.95 | R$1 | test_multi_bet (multi-bet) | — |
+| XF6726804031F | 2026-03-25 | — | R$1 | multi-bet sequencial (bet 1/2) | 12.8s |
+| FF1311542281F | 2026-03-25 | — | R$1 | multi-bet sequencial (bet 2/2) — Lembrar! | 8.8s |
+| **DF8432674011F** | **2026-03-25** | **5/6** | **R$1** | **multi-bet 3/3 — sessão persistente** | **9.9s** |
+| **BF9179637491F** | **2026-03-25** | **20/23** | **R$1** | **multi-bet 3/3 — Lembrar auto** | **4.5s** |
+| **SF1547440121F** | **2026-03-25** | **5/6** | **R$1** | **multi-bet 3/3 — Lembrar auto** | **8.2s** |
+
+---
+
+### Fase 9 — Multi-bet Sequencial + Spectator + Warm-up (Session 6) ✅ COMPLETA
+
+> **Objetivo:** Fazer N apostas sequenciais (1 por 1), com modo spectator para visualização
+> em tempo real, e warm-up com "Lembrar" para acelerar o preenchimento do stake.
+>
+> **Resultado final: 3/3 ACEITAS — DF8432674011F, BF9179637491F, SF1547440121F**
+
+#### Problemas resolvidos nesta fase
+
+| Problema | Root Cause | Fix |
+|---|---|---|
+| **gwt intermitente** | `GEO_STEALTH_SCRIPT` filtrava iceServers de STUN/TURN que GeoComply precisa para validar IP via WebRTC | Removido filtro de iceServers em `engine.py` |
+| **"Continuar" clicado em local errado** | `get_by_text("Continuar")` matchava elementos no rodapé (y=2239) fora da viewport | Filtro viewport: `y>0 and y<1100 and x>0 and x<1400` |
+| **CSS neutralize quebrava SPA** | `pointerEvents:none; opacity:0` deixava SPA em estado modal-open | Trocado por `el.remove()` que remove do DOM |
+| **clean_betslip loop infinito** | Contagem de seleções não diminuía, mas o loop rodava 10 iterações | `prev_count` tracking — para se count não muda |
+| **SPAN pequeno não clicável** | Element at click point era SPAN (27x19) ao invés do container (148x51) | Traversal: `el.closest('.gl-Participant_General')` para achar container |
+| **CondensedOverlay bloqueava clicks** | Overlay `[class*="CondensedOverlay"]` aparecia entre apostas | Adicionado à lista de overlays removidos |
+| **Bets 2/3 falhavam (addbet timeout)** | Betslip com estado corrompido após bet 1 — seleção presa não era removida | Hard reset via navegação: `#/IP` → `#/IP/B18` entre apostas |
+| **Receipt "Aposta Feita" ficava aberto** | Seletores de `close_betslip()` não matchavam o X do painel receipt | Reescrito com 5 estratégias: CSS direto, inner elements, near-header X, estimated position, DOM remove |
+| **Sleeps muito longos** | Sleeps de debugging (1.5s, 3s) acumulados ao longo das iterações | Otimização completa: ~5-8s economizados por aposta |
+| **Screenshot cortada** | `page.screenshot()` sem `full_page=True` | Adicionado `full_page=True` |
+| **"Aceitar Alteração e" não clicado** | `click_place_bet()` filtrava botões com "aceitar" — o botão combinado "Aceitar Alteração e Fazer Aposta" era ignorado como PlaceBet | Novo tipo `accept_and_place`: se texto tem "aceitar" E ("fazer"/"aposta"/"place"), clica direto como final |
+| **Odds selecionadas ficavam ativas** | Após bet, odds cell permanecia highlighted (`.gl-Participant_General-active`) entre apostas | `deselect_odds()`: tenta toggle da cell ativa, fallback click em área neutra (200, 120) |
+| **Sessão expirava a cada execução** | Cada `test_multi_bet.py` fazia login do zero (~10s desperdiçados) | **Sessão persistente via cookies**: `load_cookies()` carrega de `.browser_data/cookies.json`, verifica `pstk` + DOM, pula login se ativo |
+| **WS não capturados com sessão ativa** | WS listener registrado DEPOIS do `page.goto` — com sessão ativa, WS já abriram antes | WS listener (`page.on("websocket")`) movido para ANTES do `page.goto()` |
+| **Check sessão falso-positivo** | `!hasLogin` retornava True quando página não carregou (0 botões) | Check robusto: verifica cookie `pstk` primeiro, depois DOM poll 8s buscando "Minhas Apostas" ou saldo |
+| **Stake não preenchido (retry)** | `textContent` retornava vazio após keyboard.type | Diagnóstico melhorado: triplo-click + Ctrl+A para selecionar, leitura via `value \|\| innerText \|\| textContent` |
+
+#### Spectator Mode (`scripts/spectator.py`)
+
+Servidor HTTP local para assistir o browser headless em tempo real:
+
+```bash
+# Terminal 1: bot
+python scripts/test_multi_bet.py --count 3 --stake 1.00
+
+# Terminal 2: spectator
+python scripts/spectator.py
+# → http://localhost:7777
+```
+
+| Feature | Detalhe |
+|---|---|
+| Protocolo | HTTP server na porta 7777 |
+| Screenshot | `page.screenshot(full_page=True)` a cada 300ms |
+| Refresh | JS `setInterval(300)` — ~3 FPS |
+| Auto-refresh | Imagem recarrega automaticamente no browser |
+| Read-only | Mouse/teclado do spectator NÃO afetam o bot |
+
+#### Fluxo Multi-bet Sequencial (1-por-1)
+
+```
+Para cada aposta i de 1 a N:
+  1. dismiss_overlays()             — remove modais/overlays
+  2. clean_betslip()                — remove seleções antigas
+  3. find_all_visible_odds()        — busca cells frescas
+  4. click_odds(x, y)              — CDP trusted event → addbet
+  5. wait_addbet(12s)              — intercepta response
+  6. fill_stake(amount)            — CDP click + keyboard.type
+  7. click_place_bet()             — polling + auto-accept odds changes
+  8. wait_placebet(20s)            — intercepta response
+  9. close_betslip()               — fecha receipt "Aposta Feita" (5 estratégias)
+  10. Hard reset: navigate #/IP → Escape → delay → #/IP/B18
+  11. dismiss_overlays() novamente
+```
+
+#### Warm-up com "Lembrar" (stake pre-saved)
+
+**Conceito:** Antes das apostas reais, fazer um warm-up que:
+1. Clica em uma odds qualquer → abre betslip
+2. Preenche o valor do stake
+3. Marca o checkbox "Lembrar" (salva stake para futuras apostas)
+4. Cancela sem apostar (clean_betslip + Escape)
+
+**Resultado:** Todas as apostas seguintes já vêm com o stake preenchido automaticamente,
+eliminando a etapa de `fill_stake()` e acelerando o fluxo em ~1s por aposta.
+
+#### Sessão Persistente via Cookies
+
+O bot agora reutiliza a sessão de login entre execuções:
+
+```
+1. load_cookies(.browser_data/cookies.json) → carrega cookies salvos
+2. page.goto(bet365) → navega com cookies
+3. Verifica cookie "pstk" (sessão ativa Bet365)
+4. Poll DOM (8s): "Minhas Apostas" ou saldo visível?
+   → SIM: sessão ativa, login pulado! (~3s ao invés de ~13s)
+   → NÃO: sessão expirou, auto_login() + save_cookies()
+```
+
+**Ganho:** ~10s por execução quando sessão ativa (skip login + modal). O "Lembrar" do stake NÃO persiste entre execuções (localStorage do browser é criado novo pelo Camoufox), mas o warm_up_stake resolve isso em ~3s.
+
+#### Auto-Accept "Alteração de Linha/Odds"
+
+Quando o bet365 detecta mudança de odds/linha durante o PlaceBet, mostra botão "Aceitar Alteração e Fazer Aposta" (combinado) ou "Aceitar" (separado).
+
+**`click_place_bet()` detecta e trata 3 cenários:**
+
+| Tipo | Texto do botão | Ação |
+|---|---|---|
+| `placebet` | "Fazer Aposta" | Click direto → finaliza |
+| `accept_and_place` | "Aceitar Alteração e Fazer Aposta" | Click direto → finaliza (botão combinado) |
+| `accept` | "Aceitar" / "Accept" | Click → volta ao loop buscando PlaceBet |
+
+**Detecção:** Se texto do botão contém "aceitar" E ("fazer"/"aposta"/"place") → tipo `accept_and_place`.
+
+#### Resultados Live — Run Final (3/3 ACEITAS)
+
+```
+================================================================
+  RESUMO: 3/3 aceitas, 0 rejeitadas
+  Tempo total: 51.5s
+================================================================
+
+  #   sr   cs   Receipt           Tempo   Odds
+  ─── ──── ──── ───────────────── ─────── ──────────────
+  1   ✅ 0  3    DF8432674011F     9.9s    5/6
+  2   ✅ 0  3    BF9179637491F     4.5s    20/23
+  3   ✅ 0  3    SF1547440121F     8.2s    5/6
+```
+
+**Notas do run:**
+- Sessão ativa via cookies → **login pulado** (0s de login)
+- Warm-up "Lembrar" ativado com sucesso → stake R$1.00 salvo
+- Aposta 1: 9.9s (preencheu stake manualmente — primeiro bet pós-warm-up)
+- Aposta 2: **4.5s** (stake auto-preenchido via "Lembrar" — mais rápida!)
+- Aposta 3: 8.2s (stake auto-preenchido via "Lembrar")
+- Receipt fechado via `[class*="Receipt"] [class*="Close"]` nas apostas 2 e 3
+- Deselect odds via click neutro (200, 120)
+- Hard reset via navegação `#/IP` → `#/IP/B18` entre apostas
+
+#### Evolução dos resultados ao longo da Session 6
+
+| Run | Resultado | Detalhes |
+|---|---|---|
+| Run 1 (início) | 1/3 | 1 aceita, 2 falhas (betslip corrompido, receipt não fechou) |
+| Run 2 (hard reset) | 2/3 | 2 aceitas (XF6726804031F, FF1311542281F), 1 sr=14 (linha mudou) |
+| Run 3 (accept fix) | 0/3 | Stake não preenchido (sessão expirada durante dev) |
+| Run 4 (cookie fix) | 0/3 | Stake fill failed (triplo-click fix pendente) |
+| **Run 5 (final)** | **3/3** | **DF8432674011F, BF9179637491F, SF1547440121F** ✅ |
 
 ---
 
 ## Próximos Passos (Etapa 3)
 
-1. **Retry com backoff** — Se sr≠0, re-tentar com delay exponencial
-2. **Keepalive/heartbeat** — Manter browser e WS ativos 24h
-3. **SQLite persistence** — Histórico de apostas, P&L, logs
-4. **Stake jitter** — Variação ±5% para não parecer bot
-5. **Supervisor** — Watchdog que reinicia se browser crashar
-6. **Rich CLI** — Dashboard em terminal com status ao vivo
-7. **Bankroll tracker** — Controle de banca com unidades (µ)
-8. **Multi-fixture** — Apostar em múltiplos jogos simultâneos
+1. **Integração Telegram** — Signal → resolve fixture via FixtureMap → apostar automaticamente (prioridade máxima)
+2. **Retry com backoff** — Se sr≠0, re-tentar com delay exponencial
+3. **Keepalive/heartbeat** — Manter browser e WS ativos 24h
+4. **SQLite persistence** — Histórico de apostas, P&L, logs
+5. **Stake jitter** — Variação ±5% para não parecer bot
+6. **Supervisor** — Watchdog que reinicia se browser crashar
+7. **Rich CLI** — Dashboard em terminal com status ao vivo
+8. **Bankroll tracker** — Controle de banca com unidades (µ)
+9. **Multi-fixture** — Apostar em múltiplos jogos simultâneos
 - `tagType=WindowsDesktopBrowser` no payload → mantém fingindo browser
 
 ### WS Odds Protocol (DECODIFICADO)
@@ -806,8 +959,16 @@ Pesquisa completa na documentação do [Tippy.bet](https://tippy.bet/pt-BR/docs/
 | Arquivo | Descrição | Status |
 |---|---|---|
 | `src/betting/safety.py` | ⭐ `SafetyGuard` + `UnitSystem` — stop-loss, max stake, rate limit, µ units | ✅ Criado + Testado |
-| `src/betting/ui_placer.py` | ⭐⭐ `UIBetPlacer` — aposta via UI (mouse.click CDP), addbet/placebet interceptor | ✅ **Novo (Session 4e)** |
+| `src/betting/ui_placer.py` | ⭐⭐ `UIBetPlacer` — aposta via UI (mouse.click CDP), addbet/placebet interceptor, warm-up Lembrar, auto-accept odds, deselect, close receipt | ✅ **Atualizado (Session 6)** |
 | `src/betting/bet_log.py` | `BetLogger` — CSV logger, daily_loss, hourly_count | ✅ Existente |
+
+### Etapa 2 — Browser/Session (src/browser/)
+
+| Arquivo | Descrição | Status |
+|---|---|---|
+| `src/browser/engine.py` | Motor Camoufox + stealth + geo 5 camadas + STUN/TURN fix | ✅ **Atualizado (Session 6)** |
+| `src/browser/session.py` | Persistência de cookies (`save_cookies`/`load_cookies` → `.browser_data/cookies.json`) | ✅ Existente |
+| `src/browser/login.py` | `ensure_logged_in()` + `is_logged_in()` + `save_cookies()` | ✅ Existente |
 
 ### Etapa 2 — Scripts
 
@@ -824,6 +985,9 @@ Pesquisa completa na documentação do [Tippy.bet](https://tippy.bet/pt-BR/docs/
 | `scripts/test_ws_client.py` | Teste standalone WS client (3 modos: no-auth, tokens, listen) | ✅ Criado |
 | `scripts/bet_passive.py` | ⭐ Perfil Passivo (desbug) — apostas aleatórias para manter conta ativa | ✅ Criado |
 | `scripts/test_placebet_gwt.py` | ⭐⭐ **REFERÊNCIA UI-FLOW COMPLETO** — login auto, addbet, stake, placebet sr=0 com receipt | ✅ **Atualizado (Session 4e)** |
+| `scripts/test_multi_bet.py` | ⭐⭐ **MULTI-BET SEQUENCIAL** — login+sessão, warm-up Lembrar, N apostas 1-por-1, spectator, auto-accept odds | ✅ **Novo (Session 6)** |
+| `scripts/spectator.py` | ⭐ **SPECTATOR MODE** — HTTP server :7777, 300ms refresh, full_page screenshots | ✅ **Novo (Session 6)** |
+| `scripts/manual_login.py` | Login manual Camoufox → salva cookies em `.browser_data/cookies.json` | ✅ Existente |
 | `scripts/test_bet_via_ui.py` | Teste aposta via UI bet365 (click odds → fill stake → Place Bet) — stake unfocusable | ⚠️ **Novo (Session 4c)** |
 | `scripts/intercept_placebet.py` | Intercepta PlaceBet real via route + XHR monkey-patch — busca c= challenge | ✅ **Novo (Session 4c)** |
 | `scripts/scan_placebet_traffic.py` | Scanner do traffic log JSONL para PlaceBet (compare headers/body/c=) | ✅ **Novo (Session 4c)** |
@@ -896,7 +1060,9 @@ Pesquisa completa na documentação do [Tippy.bet](https://tippy.bet/pt-BR/docs/
 | Fase 4 — Bug Fixes e Hardening | ✅ Completa + CancelledError fixes | 100% |
 | Fase 5 — Safety + Perfil Passivo | ✅ Completa | 100% |
 | Fase 6 — **API-Only (curl_cffi + Browser Fetch)** | ✅ addbet+placebet via UI sr=0 | 95% |
-| Fase 7 — **Automação UI completa** | 🔄 Fluxo validado, integração em andamento | 40% |
+| Fase 7 — **Automação UI completa** | ✅ Fluxo multi-bet sequencial validado | 100% |
+| Fase 8 — **Setup Profissional** | ✅ Completa | 100% |
+| Fase 9 — **Multi-bet + Spectator + Warm-up** | ✅ **3/3 ACEITAS + sessão persistente** | 100% |
 
 ### Bugs Corrigidos na Sessão 3 (Teste Live)
 
@@ -984,36 +1150,23 @@ Para retomar este trabalho em um novo chat, informe ao Copilot:
 
 > "Estou trabalhando no projeto Sheva, especificamente no `apps/odds-radar`. Quero continuar a **Etapa 2 do bot profissional** — migrar de DOM scraping para API reversa do Bet365. Leia o arquivo `docs/ETAPA-2-BOT-PROFISSIONAL.md` e `docs/PROTOCOLO-BET365-API.md` para contexto completo."
 
-**Estado atual (Session 4e):** Fases 1-6 completas. Fase 7 (Automação UI) em 40% — **FLUXO UI COMPLETO VALIDADO**: login auto → gwt → click odds → addbet sr=0 → fill stake → Place Bet → **placebet sr=0, receipt XF9748854581F**. **Próximo passo: integrar no bot Telegram** — signal → navigate fixture → select odds → stake → place bet.
+**Estado atual (Session 6 — COMPLETA):** Fases 1-9 completas. **3/3 apostas aceitas em sequência!** Bot faz login automático (ou reutiliza sessão via cookies), warm-up com "Lembrar", apostas sequenciais 1-por-1, auto-accept mudanças de odds/linha, spectator mode em tempo real.
 
-**Descobertas-chave da sessão 4e (FULL UI FLOW WORKING):**
-- **PlaceBet via UI: sr=0, cs=3, receipt XF9748854581F** — fluxo 100% automático funciona!
-- **`locator.fill()`** resolve mouse interference — preenche inputs via CDP protocol, imune a foco/mouse do usuário
-- **`page.mouse.click()`** já é protocol-level (CDP) em Playwright — NÃO é mouse físico
-- **JS `dispatchEvent` (isTrusted:false)** — bet365 IGNORA clicks não-trusted para addbet/placebet
-- **Seletor correto stake**: `.bsf-StakeBox_StakeValue-input` (contenteditable div, 60x25px) — NÃO `.bss-StakeBox_StakeValue` (0x0 invisível)
-- **Seletor correto Place Bet**: `.bsf-PlaceBetButton` (225x50px, enabled após stake fill)
-- **Bet slip cleanup necessário**: remover seleções anteriores antes de clicar novas odds
-- **PlaceBet URL params**: `betGuid={bg}&c={cc}&p={pc}` — mesmos tokens do addbet response
-- **PlaceBet body**: `ns=pt=N#o=...#f={fixture}#fp={selection}#so=#c=18#sa=...#ln=+3.5#mt=11#|at=Y#TP=...#ust=1.00#st=1.00#tr={odds}#||`
+**Conquistas Session 6:**
+- **3/3 apostas aceitas:** DF8432674011F (9.9s), BF9179637491F (4.5s), SF1547440121F (8.2s)
+- **Sessão persistente:** cookies salvos/carregados entre execuções → login pulado quando sessão ativa
+- **Warm-up "Lembrar":** stake R$1.00 persistido via checkbox Bet365 → apostas 2/3 usam stake auto-preenchido
+- **Auto-accept odds/linha:** `click_place_bet()` detecta "Aceitar Alteração e Fazer Aposta" (combinado) e clica automaticamente
+- **Spectator:** http://localhost:7777 — 300ms refresh, visualização do browser headless em tempo real
+- **Fluxo robusto:** dismiss_overlays → click_odds → wait_addbet (com fallback betslip) → fill_stake (skip se Lembrar) → click_place_bet (auto-accept) → wait_placebet → deselect_odds → close_betslip → hard reset
+- **WS listener antes do goto:** captura selections mesmo quando sessão ativa (WS abrem no page load)
 
-**Descobertas-chave da sessão 4d (BREAKTHROUGH):**
-- **Endpoint `/BetsWebAPI/addbet` DESCOBERTO** — chamado ao clicar odds, retorna bg/cc/pc
-- **`c=` NÃO é algoritmo client-side** — vem do `addbet` response (`cc` field)
-- **Fluxo real**: click odds → addbet (bg/cc/pc) → fill stake → placebet (usa bg/cc/pc)
-- **Aposta via UI real: sr=0 ACEITA!** — primeira aposta aceita programaticamente
-- **Fetch() injetado: sr=-1** — bet365 Loader adiciona headers extras que não replicamos
-- **Stake input é `<div contenteditable>`** (não `<input>`) — classe `.bss-StakeBox_StakeValue`
-- **JS bet365 (script[163])**: `betRequestCorrelation = encodeURIComponent(this.document.get("cc"))`
+**Próximo passo:** Integrar o fluxo multi-bet no **bot Telegram** — receber sinal → resolver fixture via FixtureMap → apostar automaticamente.
 
-**Descobertas-chave da sessão 4c:**
-- **gwt APARECE no Camoufox** — route handlers (`page.route()`) bloqueavam a geração. Sem handlers → gwt em 5-10s
-- **POST body deve ser URL-encoded** — `%23` ao invés de `#`, `%3D` ao invés de `=`, etc.
-- **x-request-id** header é enviado pelo browser real mas ausência não é o causador de sr=-1
-- WS listener deve ser instalado ANTES da navegação para capturar todas as conexões
-
-**Descobertas-chave da sessão 3:**
-- httpx → 403 (Cloudflare TLS fingerprint) → `route.fetch()` resolve
-- `asyncio.CancelledError` é `BaseException` em Python 3.12 (não `Exception`)
-- WS odds format: `OVM175P{fixture}-{selection}U|OD={odds};HA={handicap};`
-- 172 updates de odds capturados em tempo real para um único fixture
+**Descobertas-chave Session 6:**
+- **`page.on("websocket")` ANTES de `page.goto()`** — essencial para capturar WS quando sessão ativa (skip login)
+- **Check sessão robusto:** cookie `pstk` + DOM poll ("Minhas Apostas" / saldo) com timeout 8s
+- **`accept_and_place` type:** botão "Aceitar Alteração e Fazer Aposta" detectado por texto com "aceitar" E ("fazer"/"aposta"/"place") — clicado como ação final
+- **Deselect odds:** click em área neutra (200, 120) após cada bet impede acumulação de seleções
+- **Stake fill melhorado:** triplo-click seleciona conteúdo em contenteditable div melhor que Ctrl+A
+- **11 receipts confirmados** no total (4 Session 4e, 4 Session 6 parcial, 3 Session 6 final)

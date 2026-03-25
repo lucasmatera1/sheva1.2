@@ -66,6 +66,10 @@ class BrowserEngine:
                 "geo.provider.use_corelocation": False,
                 "geo.provider.use_gpsd": False,
                 "geo.provider.use_mls": False,
+                # Silencia áudio (sem quebrar GeoComply/WebRTC)
+                "media.volume_scale": "0.0",
+                "media.autoplay.default": 5,          # block autoplay
+                "media.autoplay.blocking_policy": 2,   # block audio & video autoplay
             },
         }
         if not s.headless:
@@ -211,27 +215,10 @@ class BrowserEngine:
                 function clearWatch(id) {});
         }
 
-        // ─── WebRTC IP leak protection ──────────────────────────────────
-        // Impede que a Bet365 descubra o IP real via WebRTC
-        if (typeof window !== 'undefined') {
-            const OrigRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
-            if (OrigRTC) {
-                const PatchedRTC = function(config, constraints) {
-                    // Remove servidores STUN/TURN públicos que poderiam vazar IP
-                    if (config && config.iceServers) {
-                        config.iceServers = config.iceServers.filter(s => {
-                            const urls = Array.isArray(s.urls) ? s.urls : [s.urls || s.url || ''];
-                            return !urls.some(u => /stun:|turn:/i.test(u));
-                        });
-                    }
-                    return new OrigRTC(config, constraints);
-                };
-                PatchedRTC.prototype = OrigRTC.prototype;
-                fakes.set(PatchedRTC, nativeToString.call(OrigRTC));
-                if (window.RTCPeerConnection) window.RTCPeerConnection = PatchedRTC;
-                if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = PatchedRTC;
-            }
-        }
+        // ─── WebRTC: NÃO filtrar STUN/TURN — GeoComply precisa deles ─────
+        // GeoComply usa WebRTC com STUN servers para validar IP/localização
+        // e gerar o cookie gwt. Filtrar iceServers quebra a geração do gwt.
+        // Nota: desabilitar media.peerconnection.enabled também quebra gwt.
 
         // ─── Timezone spoof: America/Sao_Paulo (UTC-3) ──────────────────
         try {
