@@ -295,8 +295,12 @@ export function GTLeagueLiveBoard({
     playerTwoScoredRate: number;
     recentHistory: Array<{
       value: "1" | "2" | "E";
+      result: "W" | "D" | "L";
+      playerGoals: number;
+      opponentGoals: number;
       localTimeLabel: string;
       scoreLabel: string;
+      confrontationLabel: string;
     }>;
     recentBttsHistory: Array<{
       value: "S" | "N";
