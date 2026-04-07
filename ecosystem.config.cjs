@@ -7,6 +7,7 @@ module.exports = {
       cwd: "./apps/api",
       script: "dist/src/server.js",
       node_args: "--import tsx --env-file=../../.env",
+      exec_mode: "fork",
       instances: 1,
       autorestart: true,
       max_restarts: 20,
