@@ -7,7 +7,7 @@
     "dev": "dotenv -e ../../.env -- node ./scripts/dev-api.mjs",
     "dev:basket": "dotenv -e ../../.env -- node ./scripts/dev-api-basket.mjs",
     "dev:telegram-commands": "dotenv -e ../../.env -- tsx ./scripts/telegram-command-listener.ts",
-    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "build": "prisma generate && tsc -p tsconfig.build.json && node scripts/fix-esm-imports.mjs",
     "start": "node dist/src/server.js",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",

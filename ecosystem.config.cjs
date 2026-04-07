@@ -6,7 +6,7 @@ module.exports = {
       name: "sheva-api",
       cwd: "./apps/api",
       script: "dist/src/server.js",
-      node_args: "--import tsx --env-file=../../.env",
+      node_args: "--env-file=../../.env",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
@@ -14,7 +14,7 @@ module.exports = {
       min_uptime: "10s",
       restart_delay: 3000,
       watch: false,
-      max_memory_restart: "2G",
+      max_memory_restart: "512M",
       env: {
         NODE_ENV: "production",
       },
