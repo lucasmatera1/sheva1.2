@@ -1,0 +1,6 @@
+2026/03/26-07:34:49.125 721c Creating DB D:\Sheva\apps\odds-radar-chromium\.browser_data\Default\IndexedDB\https_www.bet365.bet.br_0.indexeddb.leveldb since it was missing.
+2026/03/26-07:34:49.137 721c Reusing MANIFEST D:\Sheva\apps\odds-radar-chromium\.browser_data\Default\IndexedDB\https_www.bet365.bet.br_0.indexeddb.leveldb/MANIFEST-000001
+2026/03/26-07:34:49.241 9144 Level-0 table #5: started
+2026/03/26-07:34:49.255 9144 Level-0 table #5: 765 bytes OK
+2026/03/26-07:34:49.257 9144 Delete type=0 #3
+2026/03/26-07:34:49.257 721c Manual compaction at level-0 from '\x00\x01\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x02\x00\x00\x00' @ 0 : 0; will stop at (end)

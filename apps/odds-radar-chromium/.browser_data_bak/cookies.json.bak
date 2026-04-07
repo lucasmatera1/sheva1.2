@@ -1,0 +1,222 @@
+[
+  {
+    "name": "rmbs",
+    "value": "3",
+    "domain": "www.bet365.bet.br",
+    "path": "/",
+    "expires": 1789942116,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "cc",
+    "value": "1",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1789948994,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "cc2",
+    "value": "p=1&m=1",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1789948994,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "usdi",
+    "value": "uqid=D41D3483-D65C-4D3D-9021-F7C02996AA26",
+    "domain": "www.bet365.bet.br",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "rmbs",
+    "value": "3",
+    "domain": "members.bet365.bet.br",
+    "path": "/",
+    "expires": 1789950683,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "aaat",
+    "value": "di=002f8df7-46d5-4ed4-b1e6-9fe2f0377b5b&ts=21-03-2027 02:08:50&v=2&am=0&at=0bcb8c46-0477-4547-abed-66c253e9926a&un=&ue=matheush.fernandesp@gmail.com",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1774919310,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "session",
+    "value": "lgs=1",
+    "domain": "members.bet365.bet.br",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "_ga",
+    "value": "GA1.1.1054549769.1774156056",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1808716056,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "None"
+  },
+  {
+    "name": "_ga_7FHE84QMGK",
+    "value": "GS2.1.s1774156056$o1$g0$t1774156070$j46$l0$h0",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1808716070,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "None"
+  },
+  {
+    "name": "aps03",
+    "value": "lng=33&ct=28&cst=0",
+    "domain": "members.bet365.bet.br",
+    "path": "/",
+    "expires": 1808819543,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "usdi",
+    "value": "uqid=D41D3483-D65C-4D3D-9021-F7C02996AA26",
+    "domain": "members.bet365.bet.br",
+    "path": "/",
+    "expires": 1808819543,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "gwt",
+    "value": "AcfBSpublRJYtbtwiaswmTybIxIZm1cLrm+KvZQOW67uYulI5A8NKMZxAcFC88Y9ugVGffulcOtdHdGSITHyGCbeaGK4cNWU6ol8Pj9cNPuTJ5taWgFEBABSh3YQ6v5b/y7TsPd64A2v/5moZk23iD30dh4nt0c7He+QUNu13knrltmkc2pd89h/5mJMN7fyxP1VOzK3eQuNPSze41NpveWjKqQsiuZx8q8/90ncLJ9tsB/jW4wiQqGu70pQOFKpRNoJyogMo+3A25SXawcoQJU=",
+    "domain": "www.bet365.bet.br",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Strict"
+  },
+  {
+    "name": "ab.storage.userId.2ad39307-f3fc-4a54-88d0-8225baf0bb1c",
+    "value": "g%3A50C95DFF8A8BD1FE%7Ce%3Aundefined%7Cc%3A1774058935047%7Cl%3A1774259548111",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1808827961,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "None"
+  },
+  {
+    "name": "ab.storage.deviceId.2ad39307-f3fc-4a54-88d0-8225baf0bb1c",
+    "value": "g%3A1593603d-4f51-bc1c-1c4e-0388fee92150%7Ce%3Aundefined%7Cc%3A1774056683066%7Cl%3A1774259548111",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1808827961,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "None"
+  },
+  {
+    "name": "ab.storage.sessionId.2ad39307-f3fc-4a54-88d0-8225baf0bb1c",
+    "value": "g%3Aa6a69ad7-ba18-6623-2db9-60f3817539c0%7Ce%3A1774269761121%7Cc%3A1774259548111%7Cl%3A1774267961121",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1808827961,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "None"
+  },
+  {
+    "name": "__cf_bm",
+    "value": "W16K8lRO3rnQSQKdGV4koHCFqNK_LuZoSKZZ5YDL_tY-1774268889-1.0.1.1-5UnrtAe5C7POA72Uwo731PB4pcPbzY07GGThDpdHisJn6ftYhK8OlUJutZGHZHnrfpBr9Ug8Z1.8RwwtGyHigTxA6qbnbdtzeVY3ClPZzUg",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1774270669,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "swt",
+    "value": "AXpC3ozQNtWAiJubgx20lC5ajeiORqbKTig+BcM19RtRxRLR63XGBB7W5q6dVeZFyvO2W+CSCOJ2Rt8Bd7qXa5jVsHPMj0iH2hJlugajUgN8sY56U/7L6CbM3n/4MV6O5cyEAcBhPNVLFr3dQGn/LJ9X97GW0MDdwAhwSKKgsEoPGVXgZVifBG6fgCj4JBz8UrvPdg==",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1774870486,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "pers",
+    "value": "id=675d38d7-395f-4be2-aa86-c5e3fc38d033&pc=21&username=matheushfernandesp",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1808829286,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "session",
+    "value": "lgs=1",
+    "domain": "www.bet365.bet.br",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "aps03",
+    "value": "ao=1&cf=E&cg=0&cst=0&ct=28&hd=Y&lng=33&oty=2&tt=2&tzi=16",
+    "domain": "www.bet365.bet.br",
+    "path": "/",
+    "expires": 1808829286,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "pstk",
+    "value": "7209181364A54C05A6F5136C0D966A3C000004",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "__cf_bm",
+    "value": "ySa5y0zc5EmlE.G3vpFp6gKb2ob2D.EBZHcNq7kfi1s-1774268890-1.0.1.1-.I5CpyoWfZz6iNh1Q0saj8OVahU0OKy7xDdmNRAypguz4II4wZVHHEdakZ9ByjKopfC1SebLLCVURit_Jfuchib3t_TaFphbg.XRF97rEl4",
+    "domain": ".365lpodds.com",
+    "path": "/",
+    "expires": 1774270671,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  }
+]

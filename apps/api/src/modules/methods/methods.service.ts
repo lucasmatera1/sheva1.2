@@ -1,9 +1,30 @@
 import { evaluateMethodDefinition, type MethodContext, type MethodDefinition } from "@sheva/shared";
-import { getConfrontationMethodsLive, getDashboardLeagueCurrentJLive, getMethodEvaluationLive, getMethodSummariesLive, computeAlertPlayerStats, hasPlayerPendingPriorGame } from "../../core/live-analytics";
+import {
+  computeAlertPlayerStats,
+  getConfrontationMethodsLive,
+  getDashboardLeagueCurrentJLive,
+  getDisparityOperationalWindow,
+  getMethodEvaluationLive,
+  getMethodSummariesLive,
+  hasPendingPriorConfrontationGame,
+} from "../../core/live-analytics";
 import { mockMethods } from "../../core/mock-data";
 
 type ConfrontationMethodsLeagueType = "GT LEAGUE" | "8MIN BATTLE" | "6MIN VOLTA";
-type ConfrontationMethodCode = "T+" | "E" | "(2E)" | "(2D)" | "(2D+)" | "(3D)" | "(3D+)" | "(4D)" | "(4D+)";
+type ConfrontationMethodCode =
+  | "T+"
+  | "E"
+  | "(2E)"
+  | "(2D)"
+  | "(2D+)"
+  | "(3D)"
+  | "(3D+)"
+  | "(4D)"
+  | "(4D+)"
+  | "HC-2"
+  | "HC-3"
+  | "HC-4"
+  | "HC-5";
 type ConfrontationSeriesCode = "A" | "B" | "C" | "D" | "E" | "F" | "G";
 
 type ConfrontationMethodsOptions = {
@@ -16,18 +37,42 @@ type ConfrontationMethodsOptions = {
 type CurrentLeagueSnapshot = Awaited<ReturnType<typeof getDashboardLeagueCurrentJLive>>;
 type CurrentLeagueFixture = CurrentLeagueSnapshot["fixtures"][number];
 type CurrentLeaguePlayer = CurrentLeagueSnapshot["players"][number];
+type SequencePreviewItem = {
+  result: "W" | "D" | "L";
+  localTimeLabel: string;
+  scoreLabel: string;
+  confrontationLabel: string;
+  playerGoals: number;
+  opponentGoals: number;
+};
 
 type FutureConfrontationMethodsOptions = {
   series?: ConfrontationSeriesCode;
   methodCode?: ConfrontationMethodCode;
+  methodCodes?: ConfrontationMethodCode[];
   days?: number;
   apxMin?: number;
   minOccurrences?: number;
+  includePlayerStats?: boolean;
 };
 
 const FUTURE_CONFRONTATION_SEQUENCE_PREVIEW_LENGTH = 4;
 
-const CONFRONTATION_METHOD_CODES: ConfrontationMethodCode[] = ["T+", "E", "(2E)", "(2D)", "(2D+)", "(3D)", "(3D+)", "(4D)", "(4D+)"];
+const CONFRONTATION_METHOD_CODES: ConfrontationMethodCode[] = [
+  "T+",
+  "E",
+  "(2E)",
+  "(2D)",
+  "(2D+)",
+  "(3D)",
+  "(3D+)",
+  "(4D)",
+  "(4D+)",
+  "HC-2",
+  "HC-3",
+  "HC-4",
+  "HC-5",
+];
 
 export class MethodsService {
   async listMethods() {
@@ -46,34 +91,74 @@ export class MethodsService {
     const snapshot = (await getDashboardLeagueCurrentJLive(leagueType, {
       scope: leagueType === "GT LEAGUE" ? "window" : "day",
     })) as CurrentLeagueSnapshot;
-    const selectedMethodCodes = options.methodCode ? [options.methodCode] : CONFRONTATION_METHOD_CODES;
+    const daySnapshot =
+      leagueType === "GT LEAGUE" || leagueType === "8MIN BATTLE"
+        ? ((await getDashboardLeagueCurrentJLive(leagueType, {
+            scope: "day",
+          })) as CurrentLeagueSnapshot)
+        : snapshot;
+    const selectedMethodCodes = options.methodCodes?.length
+      ? options.methodCodes
+      : options.methodCode
+        ? [options.methodCode]
+        : CONFRONTATION_METHOD_CODES;
     const playersByName = new Map(snapshot.players.map((player) => [normalizeNameKey(player.name), player]));
+    const dayPlayersByName = new Map(
+      daySnapshot.players.map((player) => [normalizeNameKey(player.name), player]),
+    );
     // GT LEAGUE: only dispatch for fixtures within 2 hours to avoid premature alerts
     const gtHorizonMs = leagueType === "GT LEAGUE" ? 2 * 60 * 60 * 1000 : Infinity;
     const upcomingFixtures = buildNextFixtures(snapshot.fixtures, leagueType === "GT LEAGUE" ? options.series : undefined, gtHorizonMs);
     const candidateRows = upcomingFixtures.flatMap((fixture) => {
       return buildFixturePerspectives(fixture).flatMap(({ playerName, opponentName, confrontationKey, confrontationLabel }) => {
         const player = playersByName.get(normalizeNameKey(playerName));
+        const dayPlayer = dayPlayersByName.get(normalizeNameKey(playerName));
+        const dayOpponent = dayPlayersByName.get(normalizeNameKey(opponentName));
         if (!player) {
           return [];
         }
 
-        if (hasPlayerPendingPriorGame(snapshot.fixtures, [playerName], new Date(fixture.playedAt).getTime())) {
+        if (
+          hasPendingPriorConfrontationGame(
+            snapshot.fixtures,
+            [playerName, opponentName],
+            new Date(fixture.playedAt).getTime(),
+          )
+        ) {
           return [];
         }
 
-        const historySequence = player.recentMatches
+        const confrontationRecentMatches = player.recentMatches
           .filter((match) => normalizeNameKey(match.opponent) === normalizeNameKey(opponentName))
           .filter((match) => new Date(match.playedAt).getTime() < new Date(fixture.playedAt).getTime())
-          .sort((left, right) => new Date(left.playedAt).getTime() - new Date(right.playedAt).getTime())
-          .map((match) => match.result as "W" | "D" | "L");
+          .sort((left, right) => new Date(left.playedAt).getTime() - new Date(right.playedAt).getTime());
         const playerDaySequenceBeforeFixture = player.recentMatches
           .filter((match) => new Date(match.playedAt).getTime() < new Date(fixture.playedAt).getTime())
           .sort((left, right) => new Date(left.playedAt).getTime() - new Date(right.playedAt).getTime())
           .map((match) => match.result as "W" | "D" | "L");
+        const playerDaySequenceDetails = (dayPlayer?.recentMatches ?? [])
+          .filter((match) => new Date(match.playedAt).getTime() < new Date(fixture.playedAt).getTime())
+          .sort((left, right) => new Date(left.playedAt).getTime() - new Date(right.playedAt).getTime())
+          .map((match) => buildSequencePreviewItem(match, playerName));
+        const opponentDaySequenceDetails = (dayOpponent?.recentMatches ?? [])
+          .filter((match) => new Date(match.playedAt).getTime() < new Date(fixture.playedAt).getTime())
+          .sort((left, right) => new Date(left.playedAt).getTime() - new Date(right.playedAt).getTime())
+          .map((match) => buildSequencePreviewItem(match, opponentName));
 
         return selectedMethodCodes.flatMap((methodCode) => {
-          if (!matchesFutureMethod(methodCode, historySequence)) {
+          const confrontationMatchesInScope = confrontationRecentMatches.filter((match) =>
+            isFutureConfrontationHistoryInScope(
+              leagueType,
+              methodCode,
+              fixture,
+              match,
+            ),
+          );
+          const historySequence = confrontationMatchesInScope.map(
+            (match) => match.result as "W" | "D" | "L",
+          );
+
+          if (!matchesFutureMethod(methodCode, leagueType, historySequence)) {
             return [];
           }
 
@@ -86,16 +171,41 @@ export class MethodsService {
             methodCode,
             historySequence,
             playerDaySequence: playerDaySequenceBeforeFixture,
+            confrontationSequenceDetails: confrontationMatchesInScope.map(
+              (match) => buildSequencePreviewItem(match, playerName),
+            ),
+            playerDaySequenceDetails,
+            opponentDaySequenceDetails,
           };
         });
       });
     });
     const methodsToLoad = Array.from(new Set(candidateRows.map((row) => row.methodCode)));
+    const candidateConfrontationKeysByMethod = new Map<
+      ConfrontationMethodCode,
+      string[]
+    >();
+
+    for (const methodCode of methodsToLoad) {
+      candidateConfrontationKeysByMethod.set(
+        methodCode,
+        Array.from(
+          new Set(
+            candidateRows
+              .filter((row) => row.methodCode === methodCode)
+              .map((row) => row.confrontationKey),
+          ),
+        ),
+      );
+    }
+
     const historicalResponses = await Promise.all(
       methodsToLoad.map((methodCode) =>
         getConfrontationMethodsLive(leagueType, methodCode, {
           series: options.series,
           includeHistory: true,
+          confrontationKeys:
+            candidateConfrontationKeysByMethod.get(methodCode) ?? [],
           days: options.days,
         }),
       ),
@@ -104,7 +214,8 @@ export class MethodsService {
       historicalResponses.map((response) => [response.methodCode, new Map(response.rows.map((row) => [row.confrontationKey, row]))]),
     );
 
-    const rows = (await Promise.all(candidateRows.map(async ({ fixture, playerName, opponentName, confrontationKey, confrontationLabel, methodCode, historySequence, playerDaySequence }) => {
+    const includePlayerStats = options.includePlayerStats ?? true;
+    const rows = (await Promise.all(candidateRows.map(async ({ fixture, playerName, opponentName, confrontationKey, confrontationLabel, methodCode, historySequence, playerDaySequence, confrontationSequenceDetails, playerDaySequenceDetails, opponentDaySequenceDetails }) => {
       const historicalRow = historyByMethod.get(methodCode)?.get(confrontationKey) ?? null;
       if (!historicalRow) {
         return [];
@@ -124,7 +235,19 @@ export class MethodsService {
       }
 
       const triggerSequence = getFutureMethodTriggerSequence(methodCode, historySequence);
-      const alertStats = await computeAlertPlayerStats(leagueType, playerName, opponentName, options.days ?? 30);
+      const alertStats = includePlayerStats
+        ? await computeAlertPlayerStats(
+            leagueType,
+            playerName,
+            opponentName,
+            options.days ?? 30,
+          )
+        : {
+            playerWinRate: 0,
+            opponentWinRate: 0,
+            h2hLast48: { total: 0, wins: 0, wr: 0 },
+            h2hLast24: { total: 0, wins: 0, wr: 0 },
+          };
 
       return {
         fixtureId: fixture.id,
@@ -147,7 +270,10 @@ export class MethodsService {
         occurrenceResults: historicalStatsBeforeFixture.occurrenceResults,
         triggerSequence,
         daySequence: playerDaySequence,
-        confrontationSequence: historySequence.slice(-FUTURE_CONFRONTATION_SEQUENCE_PREVIEW_LENGTH),
+        confrontationSequence: getFutureMethodConfrontationSequence(methodCode, historySequence),
+        confrontationSequenceDetails,
+        playerOneDaySequence: playerDaySequenceDetails,
+        playerTwoDaySequence: opponentDaySequenceDetails,
         playerWinRate: alertStats.playerWinRate,
         opponentWinRate: alertStats.opponentWinRate,
         h2hLast48: alertStats.h2hLast48,
@@ -285,13 +411,22 @@ function buildHistoricalStatsBeforeFixture(
   };
 }
 
-function matchesFutureMethod(methodCode: ConfrontationMethodCode, sequence: Array<"W" | "D" | "L">) {
+function matchesFutureMethod(
+  methodCode: ConfrontationMethodCode,
+  leagueType: ConfrontationMethodsLeagueType,
+  sequence: Array<"W" | "D" | "L">,
+) {
   const previousOne = sequence.slice(-1);
   const previousTwo = sequence.slice(-2);
   const previousThree = sequence.slice(-3);
   const previousFour = sequence.slice(-4);
 
   switch (methodCode) {
+    case "HC-2":
+    case "HC-3":
+    case "HC-4":
+    case "HC-5":
+      return matchesFutureHandicapMethod(methodCode, leagueType, sequence);
     case "T+":
       return previousOne.length === 1 && previousOne[0] === "L" && !isAllResults(previousTwo, "L", 2);
     case "E":
@@ -323,8 +458,35 @@ function isExactNonWinSequence(sequence: Array<"W" | "D" | "L">, length: number)
   return sequence.length === length && sequence.every((result) => result === "D" || result === "L") && sequence.includes("L");
 }
 
+function buildSequencePreviewItem(
+  match: CurrentLeaguePlayer["recentMatches"][number],
+  playerName: string,
+): SequencePreviewItem {
+  const [homeGoalsRaw = "0", awayGoalsRaw = "0"] = match.scoreLabel.split("-");
+  const homeGoals = Number(homeGoalsRaw);
+  const awayGoals = Number(awayGoalsRaw);
+  const isHome = normalizeNameKey(match.homePlayer) === normalizeNameKey(playerName);
+
+  return {
+    result: match.result as "W" | "D" | "L",
+    localTimeLabel: new Intl.DateTimeFormat("pt-BR", {
+      timeStyle: "short",
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date(match.playedAt)),
+    scoreLabel: match.scoreLabel,
+    confrontationLabel: `${match.homePlayer} x ${match.awayPlayer}`,
+    playerGoals: isHome ? homeGoals : awayGoals,
+    opponentGoals: isHome ? awayGoals : homeGoals,
+  };
+}
+
 function getFutureMethodTriggerSequence(methodCode: ConfrontationMethodCode, sequence: Array<"W" | "D" | "L">) {
   switch (methodCode) {
+    case "HC-2":
+    case "HC-3":
+    case "HC-4":
+    case "HC-5":
+      return sequence;
     case "T+":
     case "E":
       return sequence.slice(-1);
@@ -341,4 +503,116 @@ function getFutureMethodTriggerSequence(methodCode: ConfrontationMethodCode, seq
     default:
       return [];
   }
+}
+
+function isHandicapConfrontationMethod(
+  methodCode: ConfrontationMethodCode,
+): methodCode is "HC-2" | "HC-3" | "HC-4" | "HC-5" {
+  return (
+    methodCode === "HC-2" ||
+    methodCode === "HC-3" ||
+    methodCode === "HC-4" ||
+    methodCode === "HC-5"
+  );
+}
+
+function getFutureMethodConfrontationSequence(
+  methodCode: ConfrontationMethodCode,
+  sequence: Array<"W" | "D" | "L">,
+) {
+  if (isHandicapConfrontationMethod(methodCode)) {
+    return sequence;
+  }
+
+  return sequence.slice(-FUTURE_CONFRONTATION_SEQUENCE_PREVIEW_LENGTH);
+}
+
+function getHandicapGap(methodCode: ConfrontationMethodCode) {
+  switch (methodCode) {
+    case "HC-2":
+      return 2;
+    case "HC-3":
+      return 3;
+    case "HC-4":
+      return 4;
+    case "HC-5":
+      return 5;
+    default:
+      return null;
+  }
+}
+
+function getConfrontationScopeMaxGames(
+  leagueType: ConfrontationMethodsLeagueType,
+) {
+  return leagueType === "6MIN VOLTA" ? 8 : 6;
+}
+
+function matchesFutureHandicapMethod(
+  methodCode: ConfrontationMethodCode,
+  leagueType: ConfrontationMethodsLeagueType,
+  sequence: Array<"W" | "D" | "L">,
+) {
+  const targetGap = getHandicapGap(methodCode);
+  if (targetGap === null) {
+    return false;
+  }
+
+  if (sequence.length === 0 || sequence.length >= getConfrontationScopeMaxGames(leagueType)) {
+    return false;
+  }
+
+  const playerWins = sequence.filter((result) => result === "W").length;
+  const opponentWins = sequence.filter((result) => result === "L").length;
+  return opponentWins - playerWins === targetGap;
+}
+
+function buildFutureConfrontationScopeKey(
+  leagueType: ConfrontationMethodsLeagueType,
+  playedAtIso: string,
+  seasonId: number | null,
+) {
+  const playedAt = new Date(playedAtIso);
+  if (Number.isNaN(playedAt.getTime())) {
+    return null;
+  }
+
+  if (leagueType === "GT LEAGUE" || leagueType === "6MIN VOLTA") {
+    const operationalWindow = getDisparityOperationalWindow(playedAt, leagueType);
+    return `${leagueType}-${operationalWindow.dayKey}-${operationalWindow.windowLabel}`;
+  }
+
+  if (typeof seasonId === "number") {
+    return `${leagueType}-${seasonId}`;
+  }
+
+  return `${leagueType}-${playedAt.toISOString().slice(0, 10)}`;
+}
+
+function isFutureConfrontationHistoryInScope(
+  leagueType: ConfrontationMethodsLeagueType,
+  methodCode: ConfrontationMethodCode,
+  fixture: CurrentLeagueFixture,
+  match: CurrentLeaguePlayer["recentMatches"][number],
+) {
+  if (!isHandicapConfrontationMethod(methodCode)) {
+    return true;
+  }
+
+  const fixtureScopeKey = buildFutureConfrontationScopeKey(
+    leagueType,
+    fixture.playedAt,
+    fixture.seasonId,
+  );
+  const matchScopeKey = buildFutureConfrontationScopeKey(
+    leagueType,
+    match.playedAt,
+    match.seasonId,
+  );
+
+  if (!fixtureScopeKey || !matchScopeKey) {
+    return true;
+  }
+
+  return fixtureScopeKey === matchScopeKey;
 }

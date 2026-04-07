@@ -7,7 +7,7 @@ O módulo de alertas de método já está implementado na aplicação, mas o usu
 Grant atual verificado para o usuário da aplicação:
 
 ```sql
-GRANT SELECT ON *.* TO `fifau`@`%`
+GRANT SELECT ON *.* TO `app_user`@`%`
 ```
 
 Na prática, isso impede:
@@ -92,8 +92,8 @@ No mínimo nessas duas tabelas:
 
 ## Como validar depois da liberação
 
-1. Abrir `http://localhost:4003/api/alerts/status`
-2. Criar uma regra em `http://localhost:3004/methods/alerts`
+1. Abrir `http://localhost:4013/api/alerts/status`
+2. Criar uma regra em `http://localhost:3005/methods/alerts`
 3. Confirmar que o modo sai de `memory` e passa para `database`
 4. Rodar um dry-run e confirmar persistência após reiniciar a API
 

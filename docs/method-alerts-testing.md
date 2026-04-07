@@ -16,7 +16,7 @@ Criar uma regra:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/rules" \
+  -Uri "http://localhost:4013/api/alerts/rules" \
   -ContentType "application/json" \
   -InFile "D:\Sheva\docs\examples\alerts\create-rule-gt-4d.json"
 ```
@@ -26,7 +26,7 @@ Criar uma regra para 4D+:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/rules" \
+  -Uri "http://localhost:4013/api/alerts/rules" \
   -ContentType "application/json" \
   -InFile "D:\Sheva\docs\examples\alerts\create-rule-gt-4dplus.json"
 ```
@@ -36,7 +36,7 @@ Criar uma regra para Telegram:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/rules" \
+  -Uri "http://localhost:4013/api/alerts/rules" \
   -ContentType "application/json" \
   -InFile "D:\Sheva\docs\examples\alerts\create-rule-telegram.json"
 ```
@@ -46,7 +46,7 @@ Rodar avaliacao manual em dry-run:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/run" \
+  -Uri "http://localhost:4013/api/alerts/run" \
   -ContentType "application/json" \
   -InFile "D:\Sheva\docs\examples\alerts\run-rules-dry-run.json"
 ```
@@ -56,7 +56,7 @@ Listar regras:
 ```powershell
 Invoke-RestMethod \
   -Method Get \
-  -Uri "http://localhost:4003/api/alerts/rules"
+  -Uri "http://localhost:4013/api/alerts/rules"
 ```
 
 Listar disparos:
@@ -64,7 +64,7 @@ Listar disparos:
 ```powershell
 Invoke-RestMethod \
   -Method Get \
-  -Uri "http://localhost:4003/api/alerts/dispatches?limit=20"
+  -Uri "http://localhost:4013/api/alerts/dispatches?limit=20"
 ```
 
 ## Teste do webhook
@@ -80,7 +80,7 @@ Exemplo em PowerShell:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/webhook-debug" \
+  -Uri "http://localhost:4013/api/alerts/webhook-debug" \
   -ContentType "application/json" \
   -Body '{"source":"manual-test","message":"payload local de teste","signal":{"confrontationLabel":"Ronaldo x Romario","apx":66.67}}'
 ```
@@ -90,7 +90,7 @@ Depois consulte o historico capturado:
 ```powershell
 Invoke-RestMethod \
   -Method Get \
-  -Uri "http://localhost:4003/api/alerts/webhook-debug/events"
+  -Uri "http://localhost:4013/api/alerts/webhook-debug/events"
 ```
 
 Se preferir, ainda pode usar uma URL temporaria externa de inspeccao HTTP, como um request bin interno ou um endpoint dedicado do seu integrador.
@@ -154,7 +154,7 @@ Enviar uma mensagem de teste diretamente pela API:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/telegram/test" \
+  -Uri "http://localhost:4013/api/alerts/telegram/test" \
   -ContentType "application/json" \
   -Body (@{
     chatIds = @("123456789")
@@ -211,7 +211,7 @@ Teste rapido do webhook do Google Sheets sem disparar alerta real:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/google-sheets/test" \
+  -Uri "http://localhost:4013/api/alerts/google-sheets/test" \
   -ContentType "application/json" \
   -Body (@{
     confrontationLabel = "TESTE GOOGLE SHEETS x ALERTAS"
@@ -466,7 +466,7 @@ Se quiser forcar essa conciliacao sem esperar o proximo ciclo do runner, rode ma
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/resolve-future-results" \
+  -Uri "http://localhost:4013/api/alerts/resolve-future-results" \
   -ContentType "application/json" \
   -Body '{}'
 ```
@@ -476,7 +476,7 @@ Para restringir a uma regra especifica:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/resolve-future-results" \
+  -Uri "http://localhost:4013/api/alerts/resolve-future-results" \
   -ContentType "application/json" \
   -Body '{"ruleId":"1"}'
 ```
@@ -490,7 +490,7 @@ Passo 1, disparar um alerta futuro de teste para a regra 1:
 ```powershell
 $future = Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/rules/1/test-future-dispatch" \
+  -Uri "http://localhost:4013/api/alerts/rules/1/test-future-dispatch" \
   -ContentType "application/json" \
   -Body (@{
     confrontationLabel = "TESTE FUTURO x ALERTAS"
@@ -512,7 +512,7 @@ Passo 2, resolver o mesmo alerta simulando o placar final:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/rules/1/test-future-resolve" \
+  -Uri "http://localhost:4013/api/alerts/rules/1/test-future-resolve" \
   -ContentType "application/json" \
   -Body (@{
     rootSignalKey = $future.rootSignalKey
@@ -542,7 +542,7 @@ Exportar o snapshot atual:
 ```powershell
 Invoke-RestMethod \
   -Method Get \
-  -Uri "http://localhost:4003/api/alerts/backup"
+  -Uri "http://localhost:4013/api/alerts/backup"
 ```
 
 Salvar o snapshot atual em um arquivo local do servidor:
@@ -550,7 +550,7 @@ Salvar o snapshot atual em um arquivo local do servidor:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/backup/save-local"
+  -Uri "http://localhost:4013/api/alerts/backup/save-local"
 ```
 
 Listar o historico dos snapshots locais ja salvos:
@@ -558,7 +558,7 @@ Listar o historico dos snapshots locais ja salvos:
 ```powershell
 Invoke-RestMethod \
   -Method Get \
-  -Uri "http://localhost:4003/api/alerts/backup/local-history?limit=10"
+  -Uri "http://localhost:4013/api/alerts/backup/local-history?limit=10"
 ```
 
 Consultar se existe um latest.json salvo no servidor:
@@ -566,7 +566,7 @@ Consultar se existe um latest.json salvo no servidor:
 ```powershell
 Invoke-RestMethod \
   -Method Get \
-  -Uri "http://localhost:4003/api/alerts/backup/local-status"
+  -Uri "http://localhost:4013/api/alerts/backup/local-status"
 ```
 
 Importar um snapshot salvo, preservando o que ja existe:
@@ -576,7 +576,7 @@ $backup = Get-Content "D:\Sheva\tmp\alerts-backup.json" -Raw
 
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/backup/import" \
+  -Uri "http://localhost:4013/api/alerts/backup/import" \
   -ContentType "application/json" \
   -Body (@{
     replaceExisting = $false
@@ -590,7 +590,7 @@ Restaurar o ultimo snapshot salvo no servidor, sem precisar colar JSON:
 ```powershell
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/backup/restore-latest" \
+  -Uri "http://localhost:4013/api/alerts/backup/restore-latest" \
   -ContentType "application/json" \
   -Body (@{
     replaceExisting = $false
@@ -605,7 +605,7 @@ $backup = Get-Content "D:\Sheva\tmp\alerts-backup.json" -Raw
 
 Invoke-RestMethod \
   -Method Post \
-  -Uri "http://localhost:4003/api/alerts/backup/import" \
+  -Uri "http://localhost:4013/api/alerts/backup/import" \
   -ContentType "application/json" \
   -Body (@{
     replaceExisting = $true
@@ -634,7 +634,7 @@ Excluir uma regra pelo endpoint:
 ```powershell
 Invoke-RestMethod \
   -Method Delete \
-  -Uri "http://localhost:4003/api/alerts/rules/1"
+  -Uri "http://localhost:4013/api/alerts/rules/1"
 ```
 
 Na interface web, cada card de regra agora possui o botao Remover.

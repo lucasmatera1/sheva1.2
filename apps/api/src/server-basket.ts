@@ -1,3 +1,9 @@
+export {};
+
+import { createLogger } from "./core/logger";
+
+const log = createLogger("server-basket");
+
 process.env.SHEVA_APP_SCOPE = "basket";
 process.env.SHEVA_H2H_SOURCE = "ebasket";
 
@@ -9,14 +15,17 @@ const server = basketApp.listen(port);
 
 server.once("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {
-    console.error(`Porta ${port} ja esta em uso. Mantenha apenas uma instancia da Basket API rodando.`);
+    log.fatal(
+      { port },
+      "Porta ja esta em uso. Mantenha apenas uma instancia da Basket API rodando.",
+    );
     process.exit(1);
   }
 
-  console.error("Falha ao iniciar a Basket API", error);
+  log.fatal({ err: error }, "Falha ao iniciar a Basket API");
   process.exit(1);
 });
 
 server.once("listening", () => {
-  console.log(`Basket API online na porta ${port}`);
+  log.info({ port }, "Basket API online");
 });

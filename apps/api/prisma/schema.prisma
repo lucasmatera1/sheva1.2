@@ -561,6 +561,127 @@ model h2h_ebasket_fixtures_new {
   createdAt     DateTime @default(now()) @db.DateTime(0)
 }
 
+model portal_method_catalog {
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  league_type  String   @db.VarChar(32)
+  code         String   @db.VarChar(32)
+  label        String   @db.VarChar(64)
+  family       String   @db.VarChar(24)
+  status       String   @default("active") @db.VarChar(16)
+  sync_enabled Boolean  @default(false)
+  sort_order   Int      @default(0) @db.UnsignedSmallInt
+  created_at   DateTime @default(now()) @db.Timestamp(0)
+  updated_at   DateTime @default(now()) @updatedAt @db.Timestamp(0)
+
+  @@unique([league_type, code], map: "uq_portal_method_catalog_league_code")
+  @@index([league_type, status, sort_order], map: "idx_portal_method_catalog_league_status")
+}
+
+model portal_method_occurrences {
+  id                   BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  league_type          String   @db.VarChar(32)
+  series               String?  @db.VarChar(1)
+  method_code          String   @db.VarChar(32)
+  player_name          String   @db.VarChar(120)
+  opponent_name        String   @db.VarChar(120)
+  confrontation_key    String   @db.VarChar(255)
+  confrontation_label  String   @db.VarChar(255)
+  occurrence_match_id  String   @db.VarChar(64)
+  occurrence_played_at DateTime @db.DateTime(0)
+  day_key              String   @db.VarChar(10)
+  day_label            String   @db.VarChar(10)
+  window_label         String   @db.VarChar(24)
+  season_id            Int?
+  result               String   @db.VarChar(1)
+  full_time_score      String   @db.VarChar(16)
+  wins                 Int      @db.UnsignedInt
+  draws                Int      @db.UnsignedInt
+  losses               Int      @db.UnsignedInt
+  apx                  Decimal  @db.Decimal(5, 2)
+  total_occurrences    Int      @db.UnsignedInt
+  trigger_sequence_json String? @db.LongText
+  day_sequence_json    String?  @db.LongText
+  day_history_json     String?  @db.LongText
+  payload_json         String?  @db.LongText
+  synced_at            DateTime @db.DateTime(0)
+  created_at           DateTime @default(now()) @db.Timestamp(0)
+  updated_at           DateTime @default(now()) @updatedAt @db.Timestamp(0)
+
+  @@unique([league_type, method_code, confrontation_key, occurrence_match_id], map: "uq_portal_method_occurrence_unique")
+  @@index([league_type, occurrence_played_at], map: "idx_portal_method_occurrence_league_played")
+  @@index([league_type, series, occurrence_played_at], map: "idx_portal_method_occurrence_league_series_played")
+  @@index([league_type, method_code, occurrence_played_at], map: "idx_portal_method_occurrence_league_method_played")
+}
+
+model portal_method_sync_runs {
+  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  league_type    String   @db.VarChar(32)
+  method_code    String   @db.VarChar(32)
+  window_days    Int      @db.UnsignedSmallInt
+  status         String   @db.VarChar(16)
+  started_at     DateTime @db.DateTime(0)
+  finished_at    DateTime? @db.DateTime(0)
+  upserted_count Int      @default(0) @db.UnsignedInt
+  removed_count  Int      @default(0) @db.UnsignedInt
+  skipped_count  Int      @default(0) @db.UnsignedInt
+  error_message  String?  @db.LongText
+  details_json   String?  @db.LongText
+  created_at     DateTime @default(now()) @db.Timestamp(0)
+  updated_at     DateTime @default(now()) @updatedAt @db.Timestamp(0)
+
+  @@index([league_type, method_code, started_at], map: "idx_portal_method_sync_runs_lookup")
+  @@index([status, started_at], map: "idx_portal_method_sync_runs_status")
+}
+
+model alert_method_rules {
+  id                BigInt                   @id @default(autoincrement()) @db.UnsignedBigInt
+  name              String                   @db.VarChar(150)
+  is_active         Boolean                  @default(true)
+  transport_channel String                   @default("webhook") @db.VarChar(16)
+  league_type       String                   @db.VarChar(32)
+  method_code       String                   @db.VarChar(16)
+  series            String?                  @db.VarChar(1)
+  player_name       String?                  @db.VarChar(120)
+  apx_min           Decimal                  @default(0.00) @db.Decimal(5, 2)
+  min_occurrences   Int                      @default(1) @db.UnsignedInt
+  window_days       Int                      @default(30) @db.UnsignedSmallInt
+  recipients        String                   @db.Text
+  webhook_url       String?                  @db.VarChar(500)
+  note              String?                  @db.VarChar(255)
+  created_at        DateTime                 @default(now()) @db.Timestamp(0)
+  updated_at        DateTime                 @default(now()) @updatedAt @db.Timestamp(0)
+  last_evaluated_at DateTime?                @db.DateTime(0)
+  dispatches        alert_method_dispatches[]
+
+  @@index([is_active, league_type, method_code], map: "idx_alert_rules_active_method")
+  @@index([player_name], map: "idx_alert_rules_player_name")
+}
+
+model alert_method_dispatches {
+  id                  BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
+  rule_id             BigInt             @db.UnsignedBigInt
+  signal_key          String             @db.VarChar(255)
+  confrontation_key   String             @db.VarChar(255)
+  confrontation_label String             @db.VarChar(255)
+  day_key             String             @db.VarChar(10)
+  occurrence_match_id String             @db.VarChar(64)
+  occurrence_played_at DateTime          @db.DateTime(0)
+  apx                 Decimal            @db.Decimal(5, 2)
+  total_occurrences   Int                @db.UnsignedInt
+  payload_text        String             @db.LongText
+  recipients_snapshot String             @db.Text
+  transport_status    String             @db.VarChar(20)
+  transport_response  String?            @db.LongText
+  sent_at             DateTime?          @db.DateTime(0)
+  created_at          DateTime           @default(now()) @db.Timestamp(0)
+  updated_at          DateTime           @default(now()) @updatedAt @db.Timestamp(0)
+  rule                alert_method_rules @relation(fields: [rule_id], references: [id], onDelete: Cascade, map: "fk_alert_dispatch_rule")
+
+  @@unique([rule_id, signal_key], map: "uq_alert_dispatch_rule_signal")
+  @@index([rule_id, created_at], map: "idx_alert_dispatch_rule_created")
+  @@index([transport_status, created_at], map: "idx_alert_dispatch_status_created")
+}
+
 enum site_access_users_role {
   admin
   user

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time as _time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -54,6 +55,356 @@ class UIBetPlacer:
 
     def __init__(self, page):
         self._page = page
+        # Pre-cache de odds: { "PLAYER_NAME": [{ x, y, oddVal, hcText, col, ts }, ...] }
+        self._odds_cache: dict[str, list[dict]] = {}
+        self._cache_ts: float = 0.0  # timestamp do último scan
+        self._scanner_task: asyncio.Task | None = None
+
+    # ─── Reliable Click (mouse.click + fallback selector) ───────────────
+
+    async def _reliable_click(
+        self,
+        x: float,
+        y: float,
+        *,
+        fallback_selector: str | None = None,
+        use_marker: bool = False,
+        timeout: float = 5.0,
+        description: str = "",
+    ) -> None:
+        """Clica via mouse.click com fallback TRUSTED (locator.click).
+
+        Ordem de fallback (todos geram isTrusted:true):
+        1. Se y > 800: scroll elemento para o centro da viewport + recalcula coords
+        2. page.mouse.click(x, y) — CDP trusted event
+        3. Se timeout:
+           a. Se use_marker=True: locator('[data-sheva-target]').click() — trusted
+           b. Se fallback_selector: locator(selector).click() — trusted
+           c. Último recurso: mouse.click retry
+        NUNCA usa JS .click() — isTrusted:false é rejeitado pela Bet365.
+        """
+        page = self._page
+
+        # ── Scroll para viewport center se elemento estiver na borda inferior ──
+        # Camoufox headless trava mouse.click em y > ~800-1000
+        click_x, click_y = x, y
+        if y > 800:
+            new_coords = await page.evaluate(f"""() => {{
+                const el = document.elementFromPoint({x}, {y});
+                if (el) {{
+                    el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                    // Recalcula coordenadas após scroll
+                    const r = el.getBoundingClientRect();
+                    if (r.width > 0 && r.height > 0) {{
+                        return {{ x: r.x + r.width / 2, y: r.y + r.height / 2 }};
+                    }}
+                }}
+                return null;
+            }}""")
+            if new_coords:
+                click_x, click_y = new_coords["x"], new_coords["y"]
+                await asyncio.sleep(0.1)
+
+        try:
+            await asyncio.wait_for(page.mouse.click(click_x, click_y), timeout=timeout)
+            return
+        except asyncio.TimeoutError:
+            logger.warning(
+                "mouse.click timeout ({:.1f}s) em ({:.0f}, {:.0f}) {} — fallback locator (trusted)",
+                timeout, click_x, click_y, description,
+            )
+
+        # Fallback: locator.click() com force=True — Playwright gera eventos trusted
+        if use_marker:
+            try:
+                loc = page.locator("[data-sheva-target]").first
+                if await loc.count() > 0:
+                    await loc.scroll_into_view_if_needed(timeout=2000)
+                    await loc.click(timeout=5000, force=True)
+                    logger.info("Fallback locator [data-sheva-target] click OK (trusted)")
+                    return
+            except Exception as e:
+                logger.warning("Fallback locator [data-sheva-target] falhou: {}", e)
+
+        if fallback_selector:
+            try:
+                loc = page.locator(fallback_selector).first
+                if await loc.count() > 0:
+                    await loc.scroll_into_view_if_needed(timeout=2000)
+                    await loc.click(timeout=5000, force=True)
+                    logger.info("Fallback locator('{}') click OK (trusted)", fallback_selector)
+                    return
+            except Exception as e:
+                logger.warning("Fallback locator('{}') falhou: {}", fallback_selector, e)
+
+        # Último recurso: recalcula coords via selector e mouse.click
+        if fallback_selector:
+            recalc = await page.evaluate(f"""() => {{
+                const el = document.querySelector('{fallback_selector}');
+                if (el) {{
+                    el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                    const r = el.getBoundingClientRect();
+                    if (r.width > 0 && r.height > 0)
+                        return {{ x: r.x + r.width / 2, y: r.y + r.height / 2 }};
+                }}
+                return null;
+            }}""")
+            if recalc:
+                await asyncio.sleep(0.1)
+                try:
+                    await asyncio.wait_for(
+                        page.mouse.click(recalc["x"], recalc["y"]), timeout=5.0
+                    )
+                    logger.info("mouse.click após scrollIntoView OK ({:.0f}, {:.0f})", recalc["x"], recalc["y"])
+                    return
+                except asyncio.TimeoutError:
+                    pass
+
+        logger.error("Todos os métodos trusted falharam ({:.0f}, {:.0f}) {} — clique perdido", x, y, description)
+
+    # ─── Odds Pre-Cache Scanner ─────────────────────────────────────────
+
+    async def scan_odds_cache(self) -> int:
+        """Escaneia TODAS as odds visíveis e armazena no cache por jogador.
+
+        Retorna quantidade de jogadores mapeados.
+        """
+        data = await self._page.evaluate(r"""() => {
+            const rows = document.querySelectorAll(
+                '[class*="ovm-Fixture"], [class*="ovm-FixtureDetail"], ' +
+                '[class*="gl-Market_General"], [class*="rcl-MarketCouponFixtureLinkBase"]'
+            );
+            const result = [];
+            for (const row of rows) {
+                const odds = row.querySelectorAll('.gl-Participant_General');
+                if (odds.length < 2 || odds.length > 300) continue;
+
+                // Extrai nomes dos jogadores
+                const nameEls = row.querySelectorAll(
+                    '[class*="ParticipantName"], [class*="TeamName"], ' +
+                    '[class*="FixtureParticipant"], [class*="rcl-ParticipantFixtureDetails_TeamNames"]'
+                );
+                const names = [];
+                for (const ne of nameEls) {
+                    const t = ne.textContent.trim().toUpperCase();
+                    if (t && t.length > 1 && !names.includes(t)) names.push(t);
+                }
+                if (names.length < 2) {
+                    const fullText = row.textContent || '';
+                    const vsMatch = fullText.match(/([A-Z][A-Z\s]+?)\s+(?:v|vs|x)\s+([A-Z][A-Z\s]+)/i);
+                    if (vsMatch) {
+                        const n1 = vsMatch[1].trim().toUpperCase();
+                        const n2 = vsMatch[2].trim().toUpperCase();
+                        if (!names.includes(n1)) names.push(n1);
+                        if (!names.includes(n2)) names.push(n2);
+                    }
+                }
+
+                for (let i = 0; i < odds.length; i++) {
+                    const el = odds[i];
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width < 5 || rect.height < 5) continue;
+                    if (el.closest('[class*="Suspended"]') || el.className.includes('Suspended')) continue;
+
+                    const oddsSpan = el.querySelector('[class*="_Odds"]');
+                    const hcSpan = el.querySelector('[class*="_Handicap"]');
+                    const oddText = oddsSpan ? oddsSpan.textContent.trim() : '';
+                    const hcText = hcSpan ? hcSpan.textContent.trim() : '';
+
+                    if (!oddText) continue;
+                    const oddMatch = oddText.match(/(\d+[.,]\d+)/);
+                    if (!oddMatch) continue;
+                    const oddVal = parseFloat(oddMatch[1].replace(',', '.'));
+
+                    result.push({
+                        names: names,
+                        idx: i,
+                        oddVal: oddVal,
+                        hcText: hcText,
+                        x: rect.x + rect.width / 2,
+                        y: rect.y + rect.height / 2,
+                    });
+                }
+            }
+            return result;
+        }""")
+
+        if not data:
+            return 0
+
+        cache: dict[str, list[dict]] = {}
+        now = _time.monotonic()
+        for item in data:
+            for name in item.get("names", []):
+                if name not in cache:
+                    cache[name] = []
+                cache[name].append({
+                    "x": item["x"],
+                    "y": item["y"],
+                    "oddVal": item["oddVal"],
+                    "hcText": item["hcText"],
+                    "idx": item["idx"],
+                    "names": item["names"],
+                    "ts": now,
+                })
+        self._odds_cache = cache
+        self._cache_ts = now
+        return len(cache)
+
+    def lookup_cache(
+        self,
+        player_name: str,
+        market: str = "hc",
+        line: float | None = None,
+        target_odd: float | None = None,
+        teams: str = "",
+    ) -> dict | None:
+        """Busca no cache pre-computado. Retorna dict compatível com find_odds_by_player."""
+        if not self._odds_cache or (_time.monotonic() - self._cache_ts) > 5:
+            return None
+
+        player_upper = player_name.strip().upper()
+        entries = self._odds_cache.get(player_upper)
+        if not entries:
+            for key, val in self._odds_cache.items():
+                if player_upper in key or key in player_upper:
+                    entries = val
+                    break
+        if not entries:
+            return None
+
+        team_names = []
+        if teams and " vs " in teams:
+            team_names = [t.strip().upper() for t in teams.split(" vs ", 1)]
+
+        candidates = []
+        line_str = str(line) if line is not None else None
+
+        for e in entries:
+            if len(team_names) >= 2:
+                entry_text = " ".join(n.upper() for n in e.get("names", []))
+                if not all(t in entry_text for t in team_names):
+                    continue
+
+            hc = e.get("hcText", "")
+
+            if market == "hc" and line_str:
+                import re
+                line_num = float(line_str)
+                has_plus = "+" in hc
+                patterns = [f"+{line_str}", f"-{line_str}",
+                            f"+{line_str.replace('.', ',')}",
+                            f"-{line_str.replace('.', ',')}"]
+                exact = any(p in hc for p in patterns)
+                if exact and line_num >= 0 and not has_plus:
+                    continue
+                if not exact:
+                    m = re.search(r'([+-]?\d+[.,]\d+)', hc)
+                    if m:
+                        cell_line = abs(float(m.group(1).replace(',', '.')))
+                        if abs(cell_line - abs(line_num)) > 3:
+                            continue
+                        if line_num >= 0 and not has_plus:
+                            continue
+                    else:
+                        continue
+                candidates.append({**e, "exact": exact})
+            else:
+                candidates.append({**e, "exact": False})
+
+        if not candidates:
+            return None
+
+        if target_odd:
+            candidates.sort(key=lambda c: (
+                0 if c.get("exact") else 1,
+                abs(c["oddVal"] - target_odd),
+            ))
+
+        best = candidates[0]
+        return {
+            "x": best["x"],
+            "y": best["y"],
+            "oddVal": best["oddVal"],
+            "text": f"{best.get('hcText', '')} {best['oddVal']}",
+            "player": player_name,
+            "col": market,
+            "total": len(candidates),
+            "from_cache": True,
+        }
+
+    async def start_scanner(self, interval: float = 2.0):
+        """Inicia loop background que escaneia odds a cada `interval` segundos."""
+        if self._scanner_task and not self._scanner_task.done():
+            return
+
+        async def _loop():
+            while True:
+                try:
+                    n = await self.scan_odds_cache()
+                    if n > 0:
+                        logger.debug("Scanner: {} jogadores no cache", n)
+                except Exception:
+                    pass
+                await asyncio.sleep(interval)
+
+        self._scanner_task = asyncio.create_task(_loop())
+        logger.info("Odds scanner iniciado (intervalo={:.1f}s)", interval)
+
+    def stop_scanner(self):
+        """Para o scanner background."""
+        if self._scanner_task and not self._scanner_task.done():
+            self._scanner_task.cancel()
+            self._scanner_task = None
+
+    # ─── Checker: Log de jogadores visíveis ──────────────────────────────
+
+    async def check_visible_players(self) -> list[dict]:
+        """Escaneia e loga os jogadores/jogos visíveis na overview.
+
+        Retorna lista de fixtures com jogadores e odds visíveis.
+        Também atualiza o cache interno para lookup rápido.
+        """
+        n = await self.scan_odds_cache()
+        if n == 0:
+            return []
+
+        # Monta resumo agrupado por fixture
+        fixtures: list[dict] = []
+        seen_pairs: set[str] = set()
+
+        for player, entries in self._odds_cache.items():
+            for e in entries:
+                names = e.get("names", [])
+                pair_key = " vs ".join(sorted(n.upper() for n in names)) if names else player
+                if pair_key in seen_pairs:
+                    continue
+                seen_pairs.add(pair_key)
+
+                # Coleta todas as odds deste fixture
+                fixture_odds = []
+                for n2 in names:
+                    n2_upper = n2.strip().upper()
+                    for oe in self._odds_cache.get(n2_upper, []):
+                        fixture_odds.append({
+                            "hc": oe.get("hcText", ""),
+                            "odd": oe.get("oddVal", 0),
+                        })
+
+                fixtures.append({
+                    "players": " vs ".join(names) if names else player,
+                    "odds_count": len(fixture_odds),
+                    "sample": fixture_odds[:4],
+                })
+
+        if fixtures:
+            summary = " | ".join(
+                f"{f['players']} ({f['odds_count']}odds)"
+                for f in fixtures[:8]
+            )
+            logger.info("Checker: {} fixtures visíveis — {}", len(fixtures), summary)
+
+        return fixtures
 
     # ─── Dismiss Overlays ────────────────────────────────────────────────
 
@@ -89,7 +440,10 @@ class UIBetPlacer:
                                     and box["x"] > 0 and box["x"] < 1400):
                                 cx = box["x"] + box["width"] / 2
                                 cy = box["y"] + box["height"] / 2
-                                await self._page.mouse.click(cx, cy)
+                                await self._reliable_click(
+                                    cx, cy, timeout=3.0,
+                                    description=f"modal-{label}",
+                                )
                                 removed += 1
                                 clicked = True
                                 clicked_once = True
@@ -107,17 +461,14 @@ class UIBetPlacer:
                 await asyncio.sleep(0.2)
 
         # ── 2. Remove overlays do DOM (el.remove()) ──
-        # Diferente de CSS neutralize, remove de verdade para não poluir futuras buscas
+        # APENAS seletores exatos do modal manager — seletores amplos
+        # como [class*="CondensedOverlay"] removem elementos ESTRUTURAIS da grade de odds
         overlay_count = await self._page.evaluate("""() => {
             let count = 0;
             const sels = [
                 '.wcl-ModalManager_DarkWash',
-                '[class*="DarkWash"]',
-                '[class*="LightWash"]',
-                '[class*="ModalOverlay"]',
-                '[class*="StreamingOverlay"]',
-                '[class*="CondensedOverlay"]',
-                '[class*="Condensed_Overlay"]',
+                '.wcl-ModalManager_LightWash',
+                '.g5-PopupManager_ClickMask',
             ];
             for (const sel of sels) {
                 for (const el of document.querySelectorAll(sel)) {
@@ -163,12 +514,17 @@ class UIBetPlacer:
             }}""")
             if not btn:
                 break
-            await page.mouse.click(btn["x"], btn["y"])
+            await self._reliable_click(
+                btn["x"], btn["y"],
+                fallback_selector=SEL_REMOVE,
+                timeout=3.0,
+                description="remove-selection",
+            )
             removed += 1
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.1)
         if removed:
             logger.info("Betslip limpo ({} seleções removidas via CDP)", removed)
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.1)
         return removed
 
     # ─── Navigate to Fixture ─────────────────────────────────────────────
@@ -389,89 +745,28 @@ class UIBetPlacer:
     # ─── Click Odds (trusted CDP mouse event) ────────────────────────────
 
     async def click_odds(self, x: float, y: float) -> None:
-        """Clica em uma odds cell via mouse.click (trusted CDP events).
+        """Clica em uma odds cell via mouse.click com fallback para marker/selector.
 
-        Antes de clicar:
-        1. Verifica se há overlay bloqueador e remove-o
-        2. Se o elemento no ponto é um SPAN pequeno, sobe até o container
-           clicável (gl-Participant_General) e clica no centro dele
+        Se find_odds_by_player marcou o elemento com data-sheva-target,
+        o fallback clica diretamente nele (evita elementFromPoint errado).
+        Se o elemento no ponto é um SPAN pequeno, sobe até o container
+        clicável (gl-Participant_General) e clica no centro dele.
         """
         page = self._page
 
-        # Verifica e trata o elemento no ponto de click
+        # Remove ClickMask se presente (bloqueia mouse.click indefinidamente)
+        await page.evaluate("""() => {
+            const mask = document.querySelector('.g5-PopupManager_ClickMask');
+            if (mask) mask.remove();
+        }""")
+
+        # Verifica se o elemento é um SPAN pequeno e precisa subir ao container
         action = await page.evaluate(f"""() => {{
             const el = document.elementFromPoint({x}, {y});
             if (!el) return {{ action: 'click_original' }};
-            const cn = el.className || '';
-            const tag = el.tagName || '';
 
-            // ── 1. Verifica se é bloqueador (overlay/modal) ──
-            const blockerPatterns = ['DarkWash', 'LightWash', 'ModalManager',
-                'Overlay', 'StreamingOverlay', 'VideoPlayer', 'Veil',
-                'Depositar', 'Continuar', 'wcl-'];
-            const isBlocker = blockerPatterns.some(p => cn.includes(p));
-            const isModal = el.closest && el.closest('[class*="Modal"], [class*="Popup"], [class*="Dialog"]');
-            if (isBlocker || isModal) {{
-                const modal = el.closest('[class*="Modal"], [class*="Popup"]') || el;
-                // Busca qualquer elemento com texto "Continuar"/"Continue" (não só button)
-                let actionBtn = null;
-                if (modal.querySelectorAll) {{
-                    const candidates = modal.querySelectorAll('*');
-                    for (const c of candidates) {{
-                        const txt = (c.textContent || '').trim();
-                        if ((txt === 'Continuar' || txt === 'Continue') && c.getBoundingClientRect().width > 30) {{
-                            actionBtn = c;
-                            break;
-                        }}
-                    }}
-                }}
-                if (!actionBtn) {{
-                    // Fallback: busca button genérico
-                    actionBtn = modal.querySelector && modal.querySelector('button, [role="button"]');
-                }}
-                if (actionBtn) {{
-                    const br = actionBtn.getBoundingClientRect();
-                    return {{ action: 'click_button', x: br.x + br.width / 2, y: br.y + br.height / 2, info: cn.substring(0, 60) }};
-                }}
-                el.remove();
-                return {{ action: 'removed_blocker', info: cn.substring(0, 60) }};
-            }}
-            // Também verifica ancestors (até 3 níveis)
-            let node = el;
-            for (let i = 0; i < 3; i++) {{
-                node = node.parentElement;
-                if (!node) break;
-                const pcn = node.className || '';
-                if (blockerPatterns.some(p => pcn.includes(p))) {{
-                    // Busca Continuar/Continue em qualquer elemento filho
-                    let actionBtn = null;
-                    if (node.querySelectorAll) {{
-                        const candidates = node.querySelectorAll('*');
-                        for (const c of candidates) {{
-                            const txt = (c.textContent || '').trim();
-                            if ((txt === 'Continuar' || txt === 'Continue') && c.getBoundingClientRect().width > 30) {{
-                                actionBtn = c;
-                                break;
-                            }}
-                        }}
-                    }}
-                    if (!actionBtn) {{
-                        actionBtn = node.querySelector && node.querySelector('button, [role="button"]');
-                    }}
-                    if (actionBtn) {{
-                        const br = actionBtn.getBoundingClientRect();
-                        return {{ action: 'click_button', x: br.x + br.width / 2, y: br.y + br.height / 2, info: pcn.substring(0, 60) }};
-                    }}
-                    node.remove();
-                    return {{ action: 'removed_blocker', info: pcn.substring(0, 60) }};
-                }}
-            }}
-
-            // ── 2. Verifica se é SPAN pequeno (texto de odds) ──
-            // Se sim, sobe até o container gl-Participant_General que é o alvo clicável
             const rect = el.getBoundingClientRect();
             if (rect.width < 40 || rect.height < 25) {{
-                // Elemento pequeno — provavelmente texto dentro do container
                 const container = el.closest(
                     '.gl-Participant_General, ' +
                     '[class*="ParticipantOddsOnly"][class*="gl-Participant"], ' +
@@ -485,7 +780,7 @@ class UIBetPlacer:
                             x: cr.x + cr.width / 2,
                             y: cr.y + cr.height / 2,
                             info: container.className.substring(0, 60),
-                            original: cn.substring(0, 60),
+                            original: (el.className || '').substring(0, 60),
                         }};
                     }}
                 }}
@@ -494,50 +789,26 @@ class UIBetPlacer:
             return {{ action: 'click_original' }};
         }}""")
 
-        if action["action"] == "click_button":
-            logger.warning("Blocker detectado: {} — delegando para dismiss_overlays", action.get("info", ""))
-            await self.dismiss_overlays()
-            await asyncio.sleep(0.3)
-            # Re-avalia o elemento no ponto (pode precisar SPAN→container)
-            recheck = await page.evaluate(f"""() => {{
-                const el = document.elementFromPoint({x}, {y});
-                if (!el) return {{ action: 'click_original' }};
-                const r = el.getBoundingClientRect();
-                if (r.width < 40 || r.height < 25) {{
-                    const container = el.closest(
-                        '.gl-Participant_General, [class*="gl-Participant"]'
-                    );
-                    if (container) {{
-                        const cr = container.getBoundingClientRect();
-                        if (cr.width >= 30 && cr.height >= 20) {{
-                            return {{ action: 'click_container',
-                                     x: cr.x + cr.width / 2, y: cr.y + cr.height / 2,
-                                     info: container.className.substring(0, 60) }};
-                        }}
-                    }}
-                }}
-                return {{ action: 'click_original' }};
-            }}""")
-            if recheck["action"] == "click_container":
-                await page.mouse.click(recheck["x"], recheck["y"])
-                logger.info("Após modal: SPAN → container ({}) em ({:.0f}, {:.0f})",
-                            recheck.get("info", ""), recheck["x"], recheck["y"])
-            else:
-                await page.mouse.click(x, y)
-        elif action["action"] == "removed_blocker":
-            logger.warning("Blocker neutralizado: {} — dismiss + click odds", action.get("info", ""))
-            await self.dismiss_overlays()
-            await asyncio.sleep(0.3)
-            await page.mouse.click(x, y)
-        elif action["action"] == "click_container":
+        if action["action"] == "click_container":
             cx, cy = action["x"], action["y"]
             logger.info(
                 "SPAN pequeno ({}) → container ({}) em ({:.0f}, {:.0f})",
                 action.get("original", ""), action.get("info", ""), cx, cy,
             )
-            await page.mouse.click(cx, cy)
+            await self._reliable_click(
+                cx, cy, use_marker=True, timeout=5.0,
+                description="odds-container",
+            )
         else:
-            await page.mouse.click(x, y)
+            await self._reliable_click(
+                x, y, use_marker=True, timeout=5.0,
+                description="odds-cell",
+            )
+
+        # Limpa marcador após click
+        await page.evaluate("""() => {
+            document.querySelectorAll('[data-sheva-target]').forEach(e => e.removeAttribute('data-sheva-target'));
+        }""")
 
         logger.info("Odds clicada em ({:.0f}, {:.0f})", x, y)
 
@@ -568,9 +839,14 @@ class UIBetPlacer:
             return null;
         }""")
         if toggled:
-            await page.mouse.click(toggled["x"], toggled["y"])
+            await self._reliable_click(
+                toggled["x"], toggled["y"],
+                fallback_selector='[class*="gl-Participant"][class*="-active"]',
+                timeout=3.0,
+                description="deselect-odds",
+            )
             logger.info("Odds desselecionada via toggle em ({:.0f}, {:.0f})", toggled["x"], toggled["y"])
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.15)
             return
 
         # 2. Fallback: clica em área neutra (título "Basquete" ou header do site)
@@ -589,13 +865,20 @@ class UIBetPlacer:
             return null;
         }""")
         if neutral:
-            await page.mouse.click(neutral["x"], neutral["y"])
+            await self._reliable_click(
+                neutral["x"], neutral["y"],
+                timeout=3.0,
+                description="neutral-area",
+            )
             logger.info("Click em área neutra em ({:.0f}, {:.0f})", neutral["x"], neutral["y"])
         else:
             # Último recurso: click no canto superior esquerdo do content area
-            await page.mouse.click(200, 120)
+            await self._reliable_click(
+                200, 120, timeout=3.0,
+                description="neutral-fallback",
+            )
             logger.info("Click em área neutra fallback (200, 120)")
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.15)
 
     # ─── Wait for addbet response ────────────────────────────────────────
 
@@ -608,17 +891,23 @@ class UIBetPlacer:
         result: dict[str, Any] = {"data": None}
 
         async def on_response(resp):
-            if "betswebapi/addbet" in resp.url.lower() and not result["data"]:
+            url = resp.url.lower()
+            if "addbet" in url:
+                logger.debug("wait_addbet: response recebida url={} status={}", resp.url[:80], resp.status)
+            if "betswebapi/addbet" in url and not result["data"]:
                 try:
                     body = await resp.text()
-                    result["data"] = json.loads(body)
-                except Exception:
-                    pass
+                    parsed = json.loads(body)
+                    logger.debug("wait_addbet: body parsed, keys={} sr={} bg={}",
+                                 list(parsed.keys())[:8], parsed.get('sr'), str(parsed.get('bg',''))[:20])
+                    result["data"] = parsed
+                except Exception as exc:
+                    logger.warning("wait_addbet: erro ao parsear response: {}", exc)
 
         self._page.on("response", on_response)
         try:
-            for _ in range(timeout * 3):
-                await asyncio.sleep(0.3)
+            for _ in range(timeout * 13):
+                await asyncio.sleep(0.08)
                 if result["data"]:
                     break
         finally:
@@ -626,6 +915,9 @@ class UIBetPlacer:
                 self._page.remove_listener("response", on_response)
             except Exception:
                 pass
+
+        if not result["data"]:
+            logger.warning("wait_addbet: timeout ({}s) sem response addbet", timeout)
 
         return result["data"]
 
@@ -640,12 +932,28 @@ class UIBetPlacer:
         page = self._page
         stake_sel = SEL_STAKE
 
-        # Espera stake box aparecer
-        for _ in range(16):
+        # Fast path: se "Lembrar" está ativo, verifica stake + existência em 1 evaluate
+        if skip_if_remembered:
+            check = await page.evaluate(f"""() => {{
+                const el = document.querySelector('{stake_sel}');
+                if (!el) return {{ found: false }};
+                const val = el.textContent.trim();
+                return {{ found: true, val: val }};
+            }}""")
+            if check and check.get("found") and check.get("val") not in ("", "Aposta", "0", None):
+                try:
+                    if abs(float(check["val"].replace(",", ".")) - amount) < 0.01:
+                        logger.info("Stake já preenchido via 'Lembrar': '{}'", check["val"])
+                        return True
+                except (ValueError, TypeError):
+                    pass
+
+        # Espera stake box aparecer — polling rápido (0.05s) para mínima latência
+        for _ in range(60):
             found = await page.evaluate(f"()=>!!document.querySelector('{stake_sel}')")
             if found:
                 break
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.05)
         else:
             # Tenta seletores alternativos
             for alt in SEL_STAKE_ALT:
@@ -653,23 +961,10 @@ class UIBetPlacer:
                 if found:
                     stake_sel = alt
                     break
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.05)
             else:
                 logger.error("Stake box não encontrado")
                 return False
-
-        # Se "Lembrar" está ativo, verifica se o stake já está correto
-        if skip_if_remembered:
-            value = await page.evaluate(f"()=>{{const e=document.querySelector('{stake_sel}');return e?e.textContent.trim():''}}")
-            stake_str = f"{amount:.2f}" if amount != int(amount) else str(int(amount))
-            if value and value not in ("", "Aposta", "0"):
-                # Normaliza para comparação (1.00 == 1, etc)
-                try:
-                    if abs(float(value.replace(",", ".")) - amount) < 0.01:
-                        logger.info("Stake já preenchido via 'Lembrar': '{}'", value)
-                        return True
-                except (ValueError, TypeError):
-                    pass
 
         # Obtém coordenadas do stake box
         rect = await page.evaluate(f"""() => {{
@@ -683,8 +978,15 @@ class UIBetPlacer:
             return False
 
         # Click (trusted CDP) + limpa + digita
-        await page.mouse.click(rect["x"], rect["y"])
-        await asyncio.sleep(0.15)
+        await self._reliable_click(
+            rect["x"], rect["y"],
+            fallback_selector=stake_sel,
+            timeout=3.0,
+            description="stake-box",
+        )
+        # Foca o elemento via JS como garantia (para keyboard.type funcionar)
+        await page.evaluate(f"() => {{ const el = document.querySelector('{stake_sel}'); if (el) el.focus(); }}")
+        await asyncio.sleep(0.05)
 
         # Diagnóstico: tipo de elemento
         el_info = await page.evaluate(f"""() => {{
@@ -701,16 +1003,21 @@ class UIBetPlacer:
         }}""")
         logger.debug("Stake box info: {}", el_info)
 
+        stake_str = f"{amount:.2f}" if amount != int(amount) else str(int(amount))
+
+        # Estratégia 1: keyboard (se mouse.click conseguiu foco trusted)
         # Seleciona tudo: triplo-click (melhor em contenteditable) + Ctrl+A como backup
-        await page.mouse.click(rect["x"], rect["y"], click_count=3)
-        await asyncio.sleep(0.1)
+        try:
+            await asyncio.wait_for(page.mouse.click(rect["x"], rect["y"], click_count=3), timeout=3.0)
+        except asyncio.TimeoutError:
+            pass
+        await asyncio.sleep(0.03)
         await page.keyboard.press("Control+a")
         await page.keyboard.press("Backspace")
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.03)
 
-        stake_str = f"{amount:.2f}" if amount != int(amount) else str(int(amount))
-        await page.keyboard.type(stake_str, delay=20)
-        await asyncio.sleep(0.3)
+        await page.keyboard.type(stake_str, delay=15)
+        await asyncio.sleep(0.05)
 
         # Verifica
         value = await page.evaluate(f"""() => {{
@@ -719,18 +1026,29 @@ class UIBetPlacer:
             return e.value || e.innerText || e.textContent || '';
         }}""")
         value = value.strip()
+
+        # Estratégia 2: JS direto no contenteditable (fallback robusto)
         if not value or value in ("", "Aposta", "0"):
-            logger.warning("Stake pode não ter sido preenchido (valor='{}'), retentando...", value)
-            # Retry: click focado + triplo-click + type
-            await page.mouse.click(rect["x"], rect["y"])
-            await asyncio.sleep(0.2)
-            await page.mouse.click(rect["x"], rect["y"], click_count=3)
+            logger.warning("keyboard.type não preencheu ('{}') — usando JS insertText", value)
+            filled = await page.evaluate(f"""(stakeVal) => {{
+                const el = document.querySelector('{stake_sel}');
+                if (!el) return false;
+                el.focus();
+                // Seleciona tudo e apaga
+                const sel = window.getSelection();
+                sel.selectAllChildren(el);
+                document.execCommand('delete', false);
+                // Insere via execCommand (dispara eventos input/change)
+                const ok = document.execCommand('insertText', false, stakeVal);
+                if (!ok) {{
+                    // Último recurso: textContent direto + dispara input event
+                    el.textContent = stakeVal;
+                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+                return true;
+            }}""", stake_str)
             await asyncio.sleep(0.1)
-            await page.keyboard.press("Control+a")
-            await page.keyboard.press("Backspace")
-            await asyncio.sleep(0.1)
-            await page.keyboard.type(stake_str, delay=30)
-            await asyncio.sleep(0.3)
             value = await page.evaluate(f"""() => {{
                 const e = document.querySelector('{stake_sel}');
                 if (!e) return '';
@@ -877,16 +1195,22 @@ class UIBetPlacer:
 
             if result and result["type"] in ("accept", "accept_text"):
                 logger.warning("Odds mudaram — clicando Accept: '{}' via {}", result["text"][:50], result["selector"])
-                await page.mouse.click(result["x"], result["y"])
+                sel = result["selector"] if result["selector"] != "text-match" else None
+                await self._reliable_click(
+                    result["x"], result["y"],
+                    fallback_selector=sel,
+                    timeout=5.0,
+                    description="accept-odds",
+                )
                 accepted_odds = True
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
                 continue  # Volta ao loop para buscar Place Bet
 
             if result and result["type"] in ("placebet", "placebet_text"):
                 btn = result
                 break
 
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.05)
 
         if not btn:
             # Diagnóstico: listar tudo no betslip
@@ -913,9 +1237,65 @@ class UIBetPlacer:
             logger.info("Odds aceitas, Place Bet encontrado após Accept")
 
         logger.info("Place Bet encontrado via '{}': '{}'", btn.get("selector", ""), btn.get("text", "")[:50])
-        await page.mouse.click(btn["x"], btn["y"])
-        logger.info("Place Bet clicado em ({:.0f}, {:.0f})", btn["x"], btn["y"])
-        return True
+        sel = btn["selector"] if btn.get("selector") not in (None, "text-match") else '[class*="PlaceBet"]'
+        bx, by = btn["x"], btn["y"]
+
+        # Scroll Place Bet para o centro da viewport (pode estar em y>800)
+        if by > 600:
+            try:
+                recalc = await page.evaluate(f"""() => {{
+                    const el = document.querySelector('{sel or "[class*=PlaceBet]"}');
+                    if (el) {{
+                        el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                        const r = el.getBoundingClientRect();
+                        return {{ x: r.x + r.width / 2, y: r.y + r.height / 2 }};
+                    }}
+                    return null;
+                }}""")
+                if recalc:
+                    bx, by = recalc["x"], recalc["y"]
+                    logger.info("Place Bet scrolled into view — novas coords ({:.0f}, {:.0f})", bx, by)
+                    await asyncio.sleep(0.15)
+            except Exception:
+                pass
+
+        # Place Bet EXIGE evento trusted — JS .click() não dispara placebet.
+        # Estratégia em cascata para maximizar chance de evento trusted:
+
+        # 1. page.locator().click() — Playwright gera eventos trusted internamente
+        if sel:
+            try:
+                await page.locator(sel).first.click(timeout=8000)
+                logger.info("Place Bet clicado via locator('{}') em ({:.0f}, {:.0f})", sel, bx, by)
+                return True
+            except Exception as exc:
+                logger.warning("locator.click falhou: {} — tentando mouse.click", exc)
+
+        # 2. page.mouse.click() com timeout maior (Place Bet é crítico)
+        try:
+            await asyncio.wait_for(page.mouse.click(bx, by), timeout=8.0)
+            logger.info("Place Bet clicado via mouse.click em ({:.0f}, {:.0f})", bx, by)
+            return True
+        except asyncio.TimeoutError:
+            logger.warning("mouse.click timeout (8s) Place Bet — retry locator com force")
+
+        # 3. Retry locator com force=True (Playwright gera evento trusted)
+        if sel:
+            try:
+                await page.locator(sel).first.click(timeout=5000, force=True)
+                logger.info("Place Bet clicado via locator force=True em ({:.0f}, {:.0f})", bx, by)
+                return True
+            except Exception as exc:
+                logger.warning("locator force click falhou: {}", exc)
+
+        # 4. Último recurso: retry mouse.click com timeout estendido
+        try:
+            await asyncio.wait_for(page.mouse.click(bx, by), timeout=10.0)
+            logger.info("Place Bet clicado via mouse.click retry em ({:.0f}, {:.0f})", bx, by)
+            return True
+        except asyncio.TimeoutError:
+            logger.error("Place Bet: TODOS os métodos trusted falharam em ({:.0f}, {:.0f})", bx, by)
+            return False
 
     # ─── Wait for PlaceBet response ──────────────────────────────────────
 
@@ -947,12 +1327,12 @@ class UIBetPlacer:
         self._page.on("response", on_resp)
 
         try:
-            for i in range(timeout * 3):
-                await asyncio.sleep(0.3)
+            for i in range(timeout * 13):
+                await asyncio.sleep(0.08)
                 if traffic["response"]:
                     break
-                # A cada 3s, verifica receipt no DOM como fallback
-                if (i + 1) % 10 == 0 and not traffic["response"]:
+                # A cada ~3s, verifica receipt no DOM como fallback
+                if (i + 1) % 38 == 0 and not traffic["response"]:
                     receipt_dom = await self._page.evaluate("""() => {
                         const sels = [
                             '[class*="ReceiptContent"]',
@@ -1024,7 +1404,13 @@ class UIBetPlacer:
         }""")
         if result:
             logger.warning("Odds mudaram — aceitando alteração ({}: {})", result["type"], result.get("sel", ""))
-            await page.mouse.click(result["x"], result["y"])
+            sel = result.get("sel") if result.get("type") == "accept" else None
+            await self._reliable_click(
+                result["x"], result["y"],
+                fallback_selector=sel,
+                timeout=5.0,
+                description="accept-change",
+            )
             await asyncio.sleep(0.5)
             return True
         return False
@@ -1078,7 +1464,13 @@ class UIBetPlacer:
             return {{x: r.x + r.width / 2, y: r.y + r.height / 2}};
         }}""")
         if rect:
-            await page.mouse.click(rect["x"], rect["y"])
+            await self._reliable_click(
+                rect["x"], rect["y"],
+                fallback_selector=stake_sel,
+                timeout=3.0,
+                description="warmup-stake",
+            )
+            await page.evaluate(f"() => {{ const el = document.querySelector('{stake_sel}'); if (el) el.focus(); }}")
             await asyncio.sleep(0.15)
             await page.keyboard.press("Control+a")
             await page.keyboard.press("Backspace")
@@ -1156,7 +1548,12 @@ class UIBetPlacer:
                 return {{x: r.x + r.width / 2, y: r.y + r.height / 2}};
             }}""")
             if rect:
-                await page.mouse.click(rect["x"], rect["y"])
+                await self._reliable_click(
+                    rect["x"], rect["y"],
+                    fallback_selector=sel,
+                    timeout=3.0,
+                    description="remember-stake",
+                )
                 await asyncio.sleep(0.3)
 
                 # Confirma ativação
@@ -1330,10 +1727,16 @@ class UIBetPlacer:
             }""")
 
             if btn:
-                await page.mouse.click(btn["x"], btn["y"])
+                sel_fb = btn["sel"] if not btn["sel"].startswith(("inner:", "near-header:", "estimated-x")) else None
+                await self._reliable_click(
+                    btn["x"], btn["y"],
+                    fallback_selector=sel_fb,
+                    timeout=3.0,
+                    description="receipt-close",
+                )
                 logger.info("Receipt fechado via '{}' em ({:.0f}, {:.0f}) [{}x{}]",
                             btn["sel"], btn["x"], btn["y"], btn.get("w", "?"), btn.get("h", "?"))
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.15)
 
                 # Confirma que fechou (receipt sumiu)
                 still_open = await page.evaluate("""() => {
@@ -1356,7 +1759,7 @@ class UIBetPlacer:
 
             # Não encontrou — espera um pouco (receipt pode estar animando)
             if attempt < 2:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.25)
             else:
                 break
 
@@ -1381,6 +1784,506 @@ class UIBetPlacer:
         }""")
         if removed:
             logger.info("Receipt removido do DOM como fallback")
+
+    # ─── Find Odds by Player (overview grid) ────────────────────────────
+
+    async def find_odds_by_player(
+        self,
+        player_name: str,
+        market: str = "hc",
+        line: float | None = None,
+        target_odd: float | None = None,
+        teams: str = "",
+    ) -> dict | None:
+        """Encontra a odds cell de um jogador específico na overview (IP/B18).
+
+        Busca o jogador pelo nome na grid, identifica a cell correta (HC/O/U)
+        e retorna coordenadas para CDP click.
+
+        Args:
+            player_name: Nome do jogador (ex: "TRICKSTER", "PROWLER")
+            market: 'hc', 'over', 'under'
+            line: Linha numérica (ex: 5.5, 110.5)
+            target_odd: Odd esperada p/ ordenar candidatos por proximidade
+            teams: String "TeamA vs TeamB" para validação cruzada de fixture
+
+        Returns:
+            Dict {x, y, oddVal, text, player, col} ou None se não encontrado.
+        """
+        mkt = market or "hc"
+        line_str = str(line) if line is not None else None
+
+        # Extrai nomes dos dois jogadores para validação cruzada
+        team_names: list[str] = []
+        if teams and " vs " in teams:
+            team_names = [t.strip() for t in teams.split(" vs ", 1)]
+        elif teams:
+            team_names = [teams.strip()]
+
+        result = await self._page.evaluate(r"""(params) => {
+            const { searchPlayer, mkt, lineStr, targetOdd, teamNames } = params;
+            const playerUpper = searchPlayer.toUpperCase();
+            const teamUppers = (teamNames || []).map(t => t.toUpperCase()).filter(t => t.length > 0);
+
+            // Helper: verifica se uma row é a fixture correta (contém ambos os times)
+            function isCorrectFixture(row) {
+                if (teamUppers.length < 2) return true; // sem info de adversário, aceita
+                const txt = (row.textContent || '').toUpperCase();
+                return teamUppers.every(t => txt.includes(t));
+            }
+
+            // Helper: verifica se container tem odds suficientes
+            function hasReasonableSize(row) {
+                const odds = row.querySelectorAll('.gl-Participant_General');
+                // Containers combinados (multi-fixture) podem ter até 100+ odds
+                return odds.length >= 2 && odds.length <= 300;
+            }
+
+            // 1. Encontra a linha do jogo que contém o player
+            const allEventRows = document.querySelectorAll(
+                '[class*="gl-Market_General"], [class*="rcl-MarketCouponFixtureLinkBase"], ' +
+                '[class*="ovm-Fixture"], [class*="ovm-FixtureDetail"], ' +
+                '[class*="sl-CouponFixtureLinkBase"], [class*="Coupon_FixtureLink"]'
+            );
+
+            let matchRow = null;
+            // Fase 1a: busca row que contém AMBOS os times — prefere o menor (mais específico)
+            if (teamUppers.length >= 2) {
+                let rowCandidates = [];
+                for (const row of allEventRows) {
+                    const rowText = (row.textContent || '').toUpperCase();
+                    if (teamUppers.every(t => rowText.includes(t)) && hasReasonableSize(row)) {
+                        const oddsCount = row.querySelectorAll('.gl-Participant_General').length;
+                        rowCandidates.push({ row, oddsCount });
+                    }
+                }
+                if (rowCandidates.length > 0) {
+                    // Ordena: menor número de odds = container mais específico (1 fixture)
+                    rowCandidates.sort((a, b) => a.oddsCount - b.oddsCount);
+                    matchRow = rowCandidates[0].row;
+                }
+            }
+            // Fase 1b: fallback — busca row que contém apenas o player (menor primeiro)
+            if (!matchRow) {
+                let rowCandidates = [];
+                for (const row of allEventRows) {
+                    const rowText = (row.textContent || '').toUpperCase();
+                    if (rowText.includes(playerUpper) && hasReasonableSize(row)) {
+                        // Valida que adversário também está presente (se disponível)
+                        if (isCorrectFixture(row)) {
+                            const oddsCount = row.querySelectorAll('.gl-Participant_General').length;
+                            rowCandidates.push({ row, oddsCount });
+                        }
+                    }
+                }
+                if (rowCandidates.length > 0) {
+                    rowCandidates.sort((a, b) => a.oddsCount - b.oddsCount);
+                    matchRow = rowCandidates[0].row;
+                }
+            }
+
+            // Fallback: busca no DOM inteiro
+            if (!matchRow) {
+                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+                while (walker.nextNode()) {
+                    const t = walker.currentNode.textContent.trim().toUpperCase();
+                    if (t.includes(playerUpper)) {
+                        let parent = walker.currentNode.parentElement;
+                        for (let i = 0; i < 20; i++) {
+                            if (!parent || parent === document.body) break;
+                            const odds = parent.querySelectorAll('.gl-Participant_General');
+                            if (odds.length >= 2 && odds.length <= 30) {
+                                // Valida: row deve conter ambos os times
+                                if (isCorrectFixture(parent)) {
+                                    matchRow = parent;
+                                    break;
+                                }
+                            }
+                            parent = parent.parentElement;
+                        }
+                        if (matchRow) break;
+                    }
+                }
+            }
+
+            if (!matchRow) {
+                return { error: true, msg: 'Player "' + searchPlayer + '" não encontrado na overview',
+                         teamsSearched: teamUppers };
+            }
+
+            const matchRowOddsCount = matchRow.querySelectorAll('.gl-Participant_General').length;
+
+            // Validação final: confirma que a row contém o fixture correto
+            const matchRowText = matchRow.textContent.toUpperCase();
+            if (teamUppers.length >= 2 && !teamUppers.every(t => matchRowText.includes(t))) {
+                return { error: true, msg: 'Row encontrada NÃO contém ambos os times — abortando para evitar aposta errada',
+                         player: searchPlayer, teamsSearched: teamUppers,
+                         rowPreview: matchRowText.substring(0, 120) };
+            }
+
+            // 2. Dentro da row, busca a odd correta
+            const oddEls = matchRow.querySelectorAll('.gl-Participant_General');
+            const candidates = [];
+
+            for (let i = 0; i < oddEls.length; i++) {
+                const el = oddEls[i];
+                const rect = el.getBoundingClientRect();
+                if (rect.width < 5 || rect.height < 5) continue;
+                if (el.closest('[class*="Suspended"]') || el.className.includes('Suspended')) continue;
+
+                // Lê odds do span filho *_Odds (não do textContent concatenado!)
+                const oddsSpan = el.querySelector('[class*="_Odds"]');
+                const oddText = oddsSpan ? oddsSpan.textContent.trim() : '';
+                // Lê handicap do span filho *_Handicap
+                const hcSpan = el.querySelector('[class*="_Handicap"]');
+                const hcText = hcSpan ? hcSpan.textContent.trim() : '';
+
+                // Fallback: se não encontrou spans filhos, tenta separar textContent
+                let oddValStr = '';
+                let cellHcText = hcText;
+                if (oddText) {
+                    oddValStr = oddText;
+                } else {
+                    // Sem spans separados — tenta regex no texto inteiro
+                    const allMatches = el.textContent.trim().match(/(\d+[.,]\d+)/g);
+                    if (allMatches && allMatches.length > 0) {
+                        // Último número decimal é geralmente a odd
+                        oddValStr = allMatches[allMatches.length - 1];
+                    }
+                }
+
+                const oddMatch = oddValStr.match(/(\d+[.,]\d+)/);
+                if (!oddMatch) continue;
+                const oddVal = parseFloat(oddMatch[1].replace(',', '.'));
+
+                // Monta cellText para debug (handicap | odds separados)
+                const cellText = (hcText ? hcText + ' ' : '') + oddValStr;
+
+                if (mkt === 'hc') {
+                    // Usa hcText (do span _Handicap) para matching de linha
+                    const hcArea = (cellHcText || el.textContent.trim()).toUpperCase();
+                    const hasPlus = hcArea.includes('+');
+                    const hasMinus = hcArea.includes('-');
+
+                    if (lineStr) {
+                        const lineNum = parseFloat(lineStr);
+                        const linePatterns = [
+                            '+' + lineStr, '-' + lineStr,
+                            '+' + lineStr.replace('.', ','), '-' + lineStr.replace('.', ',')
+                        ];
+                        let exactMatch = false;
+                        for (const lp of linePatterns) {
+                            if (hcArea.includes(lp)) { exactMatch = true; break; }
+                        }
+
+                        if (exactMatch) {
+                            if (lineNum >= 0 && !hasPlus) continue;
+                            candidates.push({ idx: i, oddVal, text: cellText.substring(0, 60), col: 'hc', exact: true, rect });
+                        } else if (cellHcText) {
+                            // Tem span _Handicap — extrai o número para comparar proximidade
+                            const hcNumMatch = cellHcText.match(/([+-]?\d+[.,]\d+)/);
+                            if (hcNumMatch) {
+                                const cellLine = Math.abs(parseFloat(hcNumMatch[1].replace(',', '.')));
+                                const targetLine = Math.abs(lineNum);
+                                // Aceita se a linha mudou até ±1 ponto (ex: +4.5 aceita +3.5 a +5.5)
+                                if (Math.abs(cellLine - targetLine) <= 1 && lineNum >= 0 === hasPlus) {
+                                    candidates.push({ idx: i, oddVal, text: cellText.substring(0, 60), col: 'hc', exact: false, rect });
+                                }
+                            }
+                        }
+                        // Sem span _Handicap e sem match exato → NÃO adiciona (evita falso positivo)
+                    } else {
+                        candidates.push({ idx: i, oddVal, text: cellText.substring(0, 60), col: 'hc', exact: false, rect });
+                    }
+                }
+                else if (mkt === 'over' || mkt === 'under') {
+                    const ouPrefix = mkt === 'over' ? 'O' : 'U';
+                    const searchArea = (cellHcText || el.textContent.trim()).replace(/\s+/g, ' ');
+                    let matched = false;
+
+                    if (lineStr) {
+                        const patterns = [
+                            ouPrefix + ' ' + lineStr,
+                            ouPrefix + ' ' + lineStr.replace('.', ','),
+                            ouPrefix + lineStr,
+                        ];
+                        for (const p of patterns) {
+                            if (searchArea.includes(p)) { matched = true; break; }
+                        }
+                    } else {
+                        matched = searchArea.startsWith(ouPrefix + ' ') || searchArea.includes(' ' + ouPrefix + ' ');
+                    }
+                    if (!matched) continue;
+                    candidates.push({ idx: i, oddVal, text: cellText.substring(0, 60), col: mkt, rect });
+                }
+            }
+
+            if (candidates.length === 0) {
+                const rowOdds = Array.from(oddEls).map(e => {
+                    const p = e.closest('[class*="srb-ParticipantLabelCentered"]') || e.parentElement?.parentElement || e.parentElement;
+                    return (p ? p.textContent : e.textContent).trim().substring(0, 40);
+                });
+                return { error: true, msg: 'Odd não encontrada na linha do jogo',
+                         player: searchPlayer, mkt: mkt, lineStr: lineStr,
+                         rowOddsCount: oddEls.length, rowOdds: rowOdds.slice(0, 12) };
+            }
+
+            // Ordena: match exato primeiro, depois proximidade ao target
+            if (targetOdd) {
+                candidates.sort((a, b) => {
+                    if (a.exact && !b.exact) return -1;
+                    if (!a.exact && b.exact) return 1;
+                    return Math.abs(a.oddVal - targetOdd) - Math.abs(b.oddVal - targetOdd);
+                });
+            }
+
+            const chosen = candidates[0];
+            const chosenEl = oddEls[chosen.idx];
+
+            // Remove marcador anterior e marca o elemento escolhido
+            document.querySelectorAll('[data-sheva-target]').forEach(e => e.removeAttribute('data-sheva-target'));
+            chosenEl.setAttribute('data-sheva-target', '1');
+
+            // Scroll elemento para viewport antes de retornar coordenadas
+            chosenEl.scrollIntoView({ block: 'center', behavior: 'instant' });
+            // Recalcula rect após scroll
+            const r2 = chosenEl.getBoundingClientRect();
+            return { error: false, val: chosen.oddVal.toFixed(2),
+                     oddVal: chosen.oddVal, text: chosen.text,
+                     col: chosen.col, total: candidates.length,
+                     player: searchPlayer, rowOdds: matchRowOddsCount,
+                     x: r2.x + r2.width / 2, y: r2.y + r2.height / 2 };
+        }""", {"searchPlayer": player_name, "mkt": mkt, "lineStr": line_str, "targetOdd": target_odd, "teamNames": team_names})
+
+        if not result or result.get("error"):
+            logger.warning("find_odds_by_player: {} — debug: {}", result.get("msg", "null"), result)
+            return None
+
+        logger.info(
+            "find_odds_by_player: {} {} @{} ({}), player={}, col={}, rowOdds={}",
+            market.upper(), line_str or "", result["oddVal"],
+            result["text"][:40], result["player"], result["col"], result.get("rowOdds", "?"),
+        )
+        return result
+
+    # ─── Place Bet by Signal (Telegram integration) ──────────────────────
+
+    async def place_bet_by_signal(
+        self,
+        signal: dict,
+        stake: float = 1.0,
+        skip_if_remembered: bool = True,
+        max_odd_drop: float = 0.15,
+        skip_cleanup: bool = True,
+    ) -> UIBetResult:
+        """Fluxo completo de aposta a partir de um sinal parsed do Telegram.
+
+        Usa find_odds_by_player para localizar a odds na overview,
+        depois executa: click_odds → wait_addbet → fill_stake →
+        click_place_bet → wait_placebet → deselect → close.
+
+        Args:
+            signal: Dict do parse_signal() com market, line, hc_team, teams, odd
+            stake: Valor em R$ da aposta
+            skip_if_remembered: Se True, pula fill_stake quando Lembrar está ativo
+            max_odd_drop: Queda máxima aceitável da odd (sinal → página)
+
+        Returns:
+            UIBetResult com sr, receipt, etc.
+        """
+        import time as _time
+        t0 = _time.perf_counter()
+        result = UIBetResult()
+
+        market = signal.get("market") or "hc"
+        line = signal.get("line")
+        target_odd = signal.get("odd")
+        hc_team = signal.get("hc_team")
+        teams = signal.get("teams") or ""
+
+        # Determina nome do jogador para busca
+        player_name = hc_team or ""
+        if not player_name and teams:
+            player_name = teams.split(" vs ")[0].strip() if " vs " in teams else teams
+        if not player_name:
+            result.error = "Sinal sem nome de jogador para buscar"
+            logger.error(result.error)
+            return result
+
+        try:
+            # 1. Tenta cache pre-computado primeiro (0ms vs ~500ms do evaluate)
+            cell = self.lookup_cache(player_name, market, line, target_odd, teams=teams)
+            if cell:
+                logger.info("Cache HIT: {} {} @{} em ({:.0f}, {:.0f})",
+                            market.upper(), line or "", cell["oddVal"], cell["x"], cell["y"])
+            else:
+                # Fallback: busca completa via evaluate JS
+                cell = await self.find_odds_by_player(player_name, market, line, target_odd, teams=teams)
+            if not cell:
+                result.error = f"Jogador '{player_name}' não encontrado na overview"
+                logger.error(result.error)
+                return result
+
+            page_odd = cell["oddVal"]
+
+            # 3. Validação de queda de odds
+            if target_odd and max_odd_drop > 0:
+                drop = target_odd - page_odd
+                if drop > max_odd_drop:
+                    result.error = f"Odd desvalorizada: {target_odd:.2f} → {page_odd:.2f} (queda {drop:.2f})"
+                    logger.warning(result.error)
+                    return result
+                if drop > 0:
+                    logger.info("Odd caiu {:.2f} (dentro do range aceitável)", drop)
+
+            result.odds = str(page_odd)
+
+            # 4. Remove overlays que possam bloquear click
+            await self.dismiss_overlays()
+
+            # 5. Registra addbet listener ANTES de clicar
+            addbet_task = asyncio.create_task(self.wait_addbet(timeout=8))
+
+            # 6. Clica odds via click_odds (trata SPAN→container)
+            await self.click_odds(cell["x"], cell["y"])
+
+            # 6. Espera addbet response
+            addbet = await addbet_task
+            if not addbet or not addbet.get("bg"):
+                # Fallback: betslip pode demorar a abrir após JS click — retry com espera
+                logger.debug("addbet response vazio/None — verificando betslip com retry...")
+                betslip_ok = False
+                for _retry in range(6):  # até 3s extra
+                    await asyncio.sleep(0.5)
+                    betslip_ok = await self._page.evaluate("""() => {
+                        const stake = document.querySelector(
+                            '.bsf-StakeBox_StakeValue-input, .bss-StakeBox_StakeValue-input, [class*="StakeBox_StakeValue"]'
+                        );
+                        return !!stake && stake.offsetParent !== null;
+                    }""")
+                    if betslip_ok:
+                        break
+                if betslip_ok:
+                    addbet = {"bg": "betslip-fallback", "sr": 0}
+                    logger.info("addbet não capturado via network MAS betslip tem seleção — prosseguindo")
+                else:
+                    result.error = "addbet timeout — odds não selecionada"
+                    logger.error(result.error)
+                    return result
+
+            result.bg = addbet.get("bg", "")
+            result.cc = addbet.get("cc", "")
+            result.pc = addbet.get("pc", "")
+
+            bt = (addbet.get("bt") or [{}])[0]
+            result.fixture_id = str(bt.get("fi", ""))
+            result.selection_id = str((bt.get("pt", [{}])[0]).get("pi", "")) if bt.get("pt") else ""
+
+            logger.info("addbet OK: sr={} bg={}... odds={}", addbet.get("sr", -1), result.bg[:20], result.odds)
+
+            # 6b. Valida que betslip tem seleção ativa antes de prosseguir
+            await asyncio.sleep(0.3)  # Aguarda betslip renderizar
+            bet_count = await self._page.evaluate("""() => {
+                const countEl = document.querySelector('[class*="BetCount"]');
+                if (countEl) {
+                    const n = parseInt(countEl.textContent.trim(), 10);
+                    return isNaN(n) ? -1 : n;
+                }
+                // Fallback: procura stake box visível
+                const stake = document.querySelector(
+                    '.bsf-StakeBox_StakeValue-input, .bss-StakeBox_StakeValue-input, [class*="StakeBox_StakeValue"]'
+                );
+                return (stake && stake.offsetParent !== null) ? 1 : 0;
+            }""")
+            logger.debug("Betslip bet_count após addbet: {}", bet_count)
+            if bet_count == 0:
+                result.error = "addbet sr=0 mas betslip vazia (0 seleções) — odds pode ter expirado"
+                logger.error(result.error)
+                return result
+
+            # 7. Preenche stake
+            stake_ok = await self.fill_stake(stake, skip_if_remembered=skip_if_remembered)
+            if not stake_ok:
+                result.error = "Falha ao preencher stake"
+                logger.error(result.error)
+                return result
+
+            # 8. Registra placebet listener
+            placebet_task = asyncio.create_task(self.wait_placebet(timeout=20))
+
+            # 9. Clica Place Bet (com auto-accept se odds mudaram)
+            clicked = await self.click_place_bet()
+            if not clicked:
+                placebet_task.cancel()
+                result.error = "Place Bet button não encontrado"
+                logger.error(result.error)
+                return result
+
+            # 10. Espera resultado
+            pb = await placebet_task
+            if pb and pb.get("response"):
+                resp = pb["response"]
+                result.sr = resp.get("sr", -1)
+                result.cs = resp.get("cs", -1)
+                result.bet_receipt = resp.get("br", "")
+                result.success = (result.sr == 0)
+                result.placebet_request = pb.get("request", {})
+                result.placebet_response = resp
+
+                if result.success:
+                    logger.info(
+                        "APOSTA ACEITA! sr=0 receipt={} odd={} player={} ({:.1f}s)",
+                        result.bet_receipt, result.odds, player_name,
+                        _time.perf_counter() - t0,
+                    )
+                else:
+                    logger.warning("Aposta rejeitada: sr={} cs={}", result.sr, result.cs)
+
+                # ── RETRY sr=14 (linha/odds mudou) ──
+                # Bet365 mostra "Aceitar Alteração e Fazer aposta" — clica e re-espera
+                if result.sr == 14 and not result.success:
+                    logger.info("sr=14 detectado — tentando aceitar alteração e forçar entrada...")
+                    retry_placebet_task = asyncio.create_task(self.wait_placebet(timeout=15))
+                    retry_clicked = await self.click_place_bet()
+                    if retry_clicked:
+                        retry_pb = await retry_placebet_task
+                        if retry_pb and retry_pb.get("response"):
+                            retry_resp = retry_pb["response"]
+                            result.sr = retry_resp.get("sr", -1)
+                            result.cs = retry_resp.get("cs", -1)
+                            result.bet_receipt = retry_resp.get("br", "")
+                            result.success = (result.sr == 0)
+                            result.placebet_request = retry_pb.get("request", {})
+                            result.placebet_response = retry_resp
+                            if result.success:
+                                logger.info(
+                                    "APOSTA ACEITA (retry sr=14)! sr=0 receipt={} odd={} player={} ({:.1f}s)",
+                                    result.bet_receipt, result.odds, player_name,
+                                    _time.perf_counter() - t0,
+                                )
+                            else:
+                                logger.warning("Retry sr=14 também rejeitado: sr={} cs={}", result.sr, result.cs)
+                        else:
+                            logger.warning("Retry sr=14: placebet timeout (sem resposta)")
+                    else:
+                        retry_placebet_task.cancel()
+                        logger.warning("Retry sr=14: botão Accept/PlaceBet não encontrado")
+            else:
+                result.error = "placebet timeout"
+                logger.warning(result.error)
+
+            # 11. Cleanup: skip se hard reset virá depois (skip_cleanup=True)
+            if not skip_cleanup:
+                await self.deselect_odds()
+                await self.close_betslip()
+            else:
+                logger.debug("Cleanup skipped (hard reset segue)")
+
+        except Exception as e:
+            result.error = str(e)
+            logger.error("Erro no place_bet_by_signal: {}", e)
+
+        return result
 
     # ─── Full PlaceBet Flow ──────────────────────────────────────────────
 

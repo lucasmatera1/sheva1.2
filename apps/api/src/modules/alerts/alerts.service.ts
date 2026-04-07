@@ -1,9 +1,20 @@
-import { Prisma, type alert_method_dispatches, type alert_method_rules } from "@prisma/client";
+import {
+  Prisma,
+  type alert_method_dispatches,
+  type alert_method_rules,
+} from "@prisma/client";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { getConfrontationMethodsLive, getFuturePlayerSessionMethodsLive, getFutureFavoritoVsFracoMethodsLive } from "../../core/live-analytics";
+import {
+  getConfrontationMethodsLive,
+  getFuturePlayerSessionMethodsLive,
+  getFutureFavoritoVsFracoMethodsLive,
+} from "../../core/live-analytics";
 import { env } from "../../core/env";
+import { createLogger } from "../../core/logger";
 import { prisma } from "../../core/prisma";
+
+const log = createLogger("alerts");
 import { MethodsService } from "../methods/methods.service";
 import {
   clearMemoryAlertsState,
@@ -23,23 +34,154 @@ import {
 } from "./alerts.memory-store";
 
 const ALERT_LEAGUES = ["GT LEAGUE", "8MIN BATTLE", "6MIN VOLTA"] as const;
-const ALERT_METHODS = ["T+", "E", "(2E)", "(2D)", "(2D+)", "(3D)", "(3D+)", "(4D)", "(4D+)", "4D Jogador", "4W Jogador", "Fav T1", "Fav T2", "Fav T3"] as const;
+const ALERT_METHODS = [
+  "T+",
+  "E",
+  "(2E)",
+  "(2D)",
+  "(2D+)",
+  "(3D)",
+  "(3D+)",
+  "(4D)",
+  "(4D+)",
+  "HC-2",
+  "HC-3",
+  "HC-4",
+  "HC-5",
+  "4D Jogador",
+  "4W Jogador",
+  "Fav T1",
+  "Fav T2",
+  "Fav T3",
+  "Após DL",
+  "Após WDL",
+  "Após LWW",
+  "Após LL",
+  "Após DD",
+  "Após LDW",
+  "Após DLL",
+  "Após WLD",
+  "Após DLD",
+  "Após LLW",
+  "Após LWL",
+  "Após WDD",
+  "Após DLW",
+  "Após LLL",
+  "Após LWD",
+  "Após WWL",
+  "Após WWD",
+  "Após DDW",
+] as const;
 const ALERT_SERIES = ["A", "B", "C", "D", "E", "F", "G"] as const;
 const ALERT_TRANSPORTS = ["webhook", "telegram"] as const;
 
 type AlertLeagueType = (typeof ALERT_LEAGUES)[number];
-type AlertMethodCode = (typeof ALERT_METHODS)[number];
+type AlertConfrontationMethodCode =
+  | "T+"
+  | "E"
+  | "(2E)"
+  | "(2D)"
+  | "(2D+)"
+  | "(3D)"
+  | "(3D+)"
+  | "(4D)"
+  | "(4D+)"
+  | "HC-2"
+  | "HC-3"
+  | "HC-4"
+  | "HC-5";
+type AlertFavoritoVsFracoMethodCode = "Fav T1" | "Fav T2" | "Fav T3";
+type AlertPlayerSessionMethodCode =
+  | "4D Jogador"
+  | "4W Jogador"
+  | "Ap\u00F3s DL"
+  | "Ap\u00F3s WDL"
+  | "Ap\u00F3s LWW"
+  | "Ap\u00F3s LL"
+  | "Ap\u00F3s DD"
+  | "Ap\u00F3s LDW"
+  | "Ap\u00F3s DLL"
+  | "Ap\u00F3s WLD"
+  | "Ap\u00F3s DLD"
+  | "Ap\u00F3s LLW"
+  | "Ap\u00F3s LWL"
+  | "Ap\u00F3s WDD"
+  | "Ap\u00F3s DLW"
+  | "Ap\u00F3s LLL"
+  | "Ap\u00F3s LWD"
+  | "Ap\u00F3s WWL"
+  | "Ap\u00F3s WWD"
+  | "Ap\u00F3s DDW"
+  | "Ap\u00F3s LLLL";
+type AlertMethodCode =
+  | AlertConfrontationMethodCode
+  | AlertFavoritoVsFracoMethodCode
+  | AlertPlayerSessionMethodCode;
 type AlertSeriesCode = (typeof ALERT_SERIES)[number];
 export type AlertTransportType = (typeof ALERT_TRANSPORTS)[number];
 type DispatchSource = "manual" | "scheduler" | "odds-update";
 type DispatchEventType = "initial_signal" | "result_followup" | "odds_applied";
-type ConfrontationMethodsResponse = Awaited<ReturnType<typeof getConfrontationMethodsLive>>;
+type ConfrontationMethodsResponse = Awaited<
+  ReturnType<typeof getConfrontationMethodsLive>
+>;
 type ConfrontationRow = ConfrontationMethodsResponse["rows"][number];
 type ConfrontationOccurrence = ConfrontationRow["history"][number];
-type FutureConfrontationMethodsResponse = Awaited<ReturnType<MethodsService["getFutureConfrontationMethods"]>>;
-type FutureConfrontationRow = FutureConfrontationMethodsResponse["rows"][number];
-type FuturePlayerSessionMethodsResponse = Awaited<ReturnType<typeof getFuturePlayerSessionMethodsLive>>;
-type FuturePlayerSessionRow = FuturePlayerSessionMethodsResponse["rows"][number];
+type FutureConfrontationMethodsResponse = Awaited<
+  ReturnType<MethodsService["getFutureConfrontationMethods"]>
+>;
+type FutureConfrontationRow =
+  FutureConfrontationMethodsResponse["rows"][number];
+type FuturePlayerSessionMethodsResponse = Awaited<
+  ReturnType<typeof getFuturePlayerSessionMethodsLive>
+>;
+type FuturePlayerSessionRow =
+  FuturePlayerSessionMethodsResponse["rows"][number];
+
+const ALERT_CONFRONTATION_METHOD_CODE_SET = new Set<string>([
+  "T+",
+  "E",
+  "(2E)",
+  "(2D)",
+  "(2D+)",
+  "(3D)",
+  "(3D+)",
+  "(4D)",
+  "(4D+)",
+  "HC-2",
+  "HC-3",
+  "HC-4",
+  "HC-5",
+]);
+const ALERT_FAVORITO_VS_FRACO_METHOD_CODE_SET = new Set<string>([
+  "Fav T1",
+  "Fav T2",
+  "Fav T3",
+]);
+const ALERT_PLAYER_SESSION_METHOD_CODE_SET = new Set<string>([
+  "4D Jogador",
+  "4W Jogador",
+  "Ap\u00F3s DL",
+  "Ap\u00F3s WDL",
+  "Ap\u00F3s LWW",
+  "Ap\u00F3s LL",
+  "Ap\u00F3s DD",
+  "Ap\u00F3s LDW",
+  "Ap\u00F3s DLL",
+  "Ap\u00F3s WLD",
+  "Ap\u00F3s DLD",
+  "Ap\u00F3s LLW",
+  "Ap\u00F3s LWL",
+  "Ap\u00F3s WDD",
+  "Ap\u00F3s DLW",
+  "Ap\u00F3s LLL",
+  "Ap\u00F3s LWD",
+  "Ap\u00F3s WWL",
+  "Ap\u00F3s WWD",
+  "Ap\u00F3s DDW",
+  "Ap\u00F3s LLLL",
+]);
+const OPEN_SIGNAL_LOOKBACK_MS = 45 * 60 * 1000;
+const OPEN_SIGNAL_LOOKAHEAD_MS = 60 * 60 * 1000;
 
 export type AlertRuleInput = {
   name: string;
@@ -146,7 +288,10 @@ type StoredDispatchPayload = {
     triggerSequence?: string[];
     daySequence?: string[];
     confrontationSequence?: string[];
-    sourceView?: "future-confrontations" | "future-player-sessions" | "historical";
+    sourceView?:
+      | "future-confrontations"
+      | "future-player-sessions"
+      | "historical";
   };
   recipients?: string[];
   message?: string;
@@ -197,7 +342,10 @@ type EvaluatedSignal = {
   triggerSequence?: string[];
   daySequence?: string[];
   confrontationSequence?: string[];
-  sourceView?: "future-confrontations" | "future-player-sessions" | "historical";
+  sourceView?:
+    | "future-confrontations"
+    | "future-player-sessions"
+    | "historical";
 };
 
 type SignalPreviewItem = {
@@ -236,7 +384,10 @@ type SignalPreviewItem = {
   triggerSequence?: string[];
   daySequence?: string[];
   confrontationSequence?: string[];
-  sourceView?: "future-confrontations" | "future-player-sessions" | "historical";
+  sourceView?:
+    | "future-confrontations"
+    | "future-player-sessions"
+    | "historical";
 };
 
 type DispatchOutcome = {
@@ -283,7 +434,10 @@ type GoogleSheetsDispatchLogPayload = {
     occurrenceResults?: string[];
     triggerSequence?: string[];
     daySequence?: string[];
-    sourceView?: "future-confrontations" | "historical";
+    sourceView?:
+      | "future-confrontations"
+      | "future-player-sessions"
+      | "historical";
     odds?: {
       homePlayer: string;
       awayPlayer: string;
@@ -313,24 +467,34 @@ type GoogleSheetsDispatchAttempt =
 
 type AlertRuleEntity = alert_method_rules | AlertRuleRecord;
 type AlertDispatchEntity = alert_method_dispatches | AlertDispatchRecord;
+type DispatchRuleSummary = {
+  name: string;
+  method_code: string;
+  league_type: string;
+};
+type AlertDispatchWithRuleEntity = AlertDispatchEntity & {
+  rule?: DispatchRuleSummary | null;
+};
 let alertsPersistenceMode: "database" | "memory" = "database";
 const ALERTS_LOCAL_BACKUP_DIR = resolve(process.cwd(), "tmp", "alerts-backups");
-const ALERTS_LOCAL_BACKUP_LATEST_PATH = resolve(ALERTS_LOCAL_BACKUP_DIR, "latest.json");
+const ALERTS_LOCAL_BACKUP_LATEST_PATH = resolve(
+  ALERTS_LOCAL_BACKUP_DIR,
+  "latest.json",
+);
 const methodsService = new MethodsService();
 
 export class AlertsService {
   async bootstrapVolatileRulesFromLocalBackup() {
     await this.detectPersistenceMode();
 
-    if (alertsPersistenceMode !== "memory") {
-      return { restored: false, reason: "database-available" } as const;
-    }
-
     const existingRules = await this.listRules();
     if (existingRules.length) {
       return {
         restored: false,
-        reason: "memory-already-populated",
+        reason:
+          alertsPersistenceMode === "memory"
+            ? "memory-already-populated"
+            : "database-already-populated",
         rulesCount: existingRules.length,
       } as const;
     }
@@ -343,7 +507,10 @@ export class AlertsService {
 
       return {
         restored: true,
-        reason: "local-backup-restored",
+        reason:
+          alertsPersistenceMode === "memory"
+            ? "local-backup-restored"
+            : "database-empty-restored",
         rulesCount: restored.importedCount,
       } as const;
     } catch {
@@ -356,7 +523,9 @@ export class AlertsService {
       persistenceMode: alertsPersistenceMode,
       isVolatile: alertsPersistenceMode === "memory",
       telegramConfigured: Boolean(env.TELEGRAM_BOT_TOKEN),
-      defaultTelegramChatIds: parseRecipients(env.TELEGRAM_DEFAULT_CHAT_IDS ?? ""),
+      defaultTelegramChatIds: parseRecipients(
+        env.TELEGRAM_DEFAULT_CHAT_IDS ?? "",
+      ),
     };
   }
 
@@ -369,8 +538,8 @@ export class AlertsService {
     return alertsPersistenceMode;
   }
 
-  async listRules() {
-    const rules = await withAlertsPersistence(
+  async listRules(): Promise<Array<ReturnType<typeof serializeRule>>> {
+    const rules = await withAlertsPersistence<AlertRuleEntity[]>(
       () =>
         prisma.alert_method_rules.findMany({
           orderBy: [{ is_active: "desc" }, { created_at: "desc" }],
@@ -378,7 +547,7 @@ export class AlertsService {
       () => listMemoryRules(),
     );
 
-    return rules.map((rule) => serializeRule(rule));
+    return rules.map((rule: AlertRuleEntity) => serializeRule(rule));
   }
 
   async exportRulesBackup(): Promise<AlertRulesBackup> {
@@ -392,7 +561,10 @@ export class AlertsService {
     };
   }
 
-  async importRulesBackup(backup: AlertRulesBackup, options: ImportRulesBackupOptions = {}) {
+  async importRulesBackup(
+    backup: AlertRulesBackup,
+    options: ImportRulesBackupOptions = {},
+  ) {
     const importedRules = backup.rules.map((rule) => toRuleInput(rule));
 
     for (const rule of importedRules) {
@@ -405,7 +577,12 @@ export class AlertsService {
     const skipDuplicates = options.skipDuplicates ?? true;
 
     const existingRules = replaceExisting ? [] : await this.listRules();
-    const existingRuleBySignature = new Map(existingRules.map((rule) => [buildRuleSignature(toRuleInput(rule)), rule]));
+    const existingRuleBySignature = new Map(
+      existingRules.map((rule) => [
+        buildRuleSignature(toRuleInput(rule)),
+        rule,
+      ]),
+    );
     const seenSignatures = new Set(existingRuleBySignature.keys());
     const rulesToCreate = [] as AlertRuleInput[];
     const sourceRuleIdsToCreate = [] as string[];
@@ -437,10 +614,13 @@ export class AlertsService {
       sourceRuleIdsToCreate.push(sourceRuleId);
     }
 
-    const createdRules = await withAlertsPersistence(
+    const createdRules = await withAlertsPersistence<AlertRuleEntity[]>(
       async () => {
         if (replaceExisting) {
-          await prisma.$transaction([prisma.alert_method_dispatches.deleteMany(), prisma.alert_method_rules.deleteMany()]);
+          await prisma.$transaction([
+            prisma.alert_method_dispatches.deleteMany(),
+            prisma.alert_method_rules.deleteMany(),
+          ]);
         }
 
         const created = [] as AlertRuleEntity[];
@@ -483,40 +663,94 @@ export class AlertsService {
       sourceRuleIdToTargetRuleId.set(sourceRuleIdsToCreate[index]!, rule.id);
     }
 
-    for (const [sourceRuleId, canonicalSourceRuleId] of sourceRuleIdAliases.entries()) {
-      const targetRuleId = sourceRuleIdToTargetRuleId.get(canonicalSourceRuleId);
+    for (const [
+      sourceRuleId,
+      canonicalSourceRuleId,
+    ] of sourceRuleIdAliases.entries()) {
+      const targetRuleId = sourceRuleIdToTargetRuleId.get(
+        canonicalSourceRuleId,
+      );
       if (targetRuleId) {
         sourceRuleIdToTargetRuleId.set(sourceRuleId, targetRuleId);
       }
     }
 
-    if (alertsPersistenceMode === "memory" && Array.isArray(backup.dispatches) && backup.dispatches.length) {
-      for (const dispatch of backup.dispatches) {
+    if (Array.isArray(backup.dispatches) && backup.dispatches.length) {
+      const mappedDispatches = backup.dispatches.flatMap((dispatch) => {
         const targetRuleId = sourceRuleIdToTargetRuleId.get(dispatch.ruleId);
-        if (!targetRuleId || findMemoryDispatch(targetRuleId, dispatch.signalKey)) {
-          continue;
+        if (!targetRuleId) {
+          return [];
         }
 
-        restoreMemoryDispatch({
-          id: BigInt(dispatch.id),
-          rule_id: targetRuleId,
-          signal_key: dispatch.signalKey,
-          confrontation_key: dispatch.confrontationKey,
-          confrontation_label: dispatch.confrontationLabel,
-          day_key: dispatch.dayKey,
-          occurrence_match_id: dispatch.occurrenceMatchId,
-          occurrence_played_at: new Date(dispatch.occurrencePlayedAt),
-          apx: new Prisma.Decimal(dispatch.apx),
-          total_occurrences: dispatch.totalOccurrences,
-          payload_text: dispatch.payloadText,
-          recipients_snapshot: serializeRecipients(dispatch.recipients),
-          transport_status: dispatch.transportStatus,
-          transport_response: dispatch.transportResponse,
-          sent_at: dispatch.sentAt ? new Date(dispatch.sentAt) : null,
-          created_at: new Date(dispatch.createdAt),
-          updated_at: new Date(dispatch.updatedAt),
-        });
-      }
+        return [
+          {
+            sourceId: BigInt(dispatch.id),
+            rule_id: targetRuleId,
+            signal_key: dispatch.signalKey,
+            confrontation_key: dispatch.confrontationKey,
+            confrontation_label: dispatch.confrontationLabel,
+            day_key: dispatch.dayKey,
+            occurrence_match_id: dispatch.occurrenceMatchId,
+            occurrence_played_at: new Date(dispatch.occurrencePlayedAt),
+            apx: new Prisma.Decimal(dispatch.apx),
+            total_occurrences: dispatch.totalOccurrences,
+            payload_text: dispatch.payloadText,
+            recipients_snapshot: serializeRecipients(dispatch.recipients),
+            transport_status: dispatch.transportStatus,
+            transport_response: dispatch.transportResponse,
+            sent_at: dispatch.sentAt ? new Date(dispatch.sentAt) : null,
+            created_at: new Date(dispatch.createdAt),
+            updated_at: new Date(dispatch.updatedAt),
+          },
+        ];
+      });
+
+      await withAlertsPersistence(
+        async () => {
+          if (!mappedDispatches.length) {
+            return null;
+          }
+
+          await prisma.alert_method_dispatches.createMany({
+            data: mappedDispatches.map(
+              ({ sourceId: _sourceId, ...dispatch }) => ({
+                ...dispatch,
+              }),
+            ),
+            skipDuplicates: true,
+          });
+          return null;
+        },
+        () => {
+          for (const dispatch of mappedDispatches) {
+            if (findMemoryDispatch(dispatch.rule_id, dispatch.signal_key)) {
+              continue;
+            }
+
+            restoreMemoryDispatch({
+              id: dispatch.sourceId,
+              rule_id: dispatch.rule_id,
+              signal_key: dispatch.signal_key,
+              confrontation_key: dispatch.confrontation_key,
+              confrontation_label: dispatch.confrontation_label,
+              day_key: dispatch.day_key,
+              occurrence_match_id: dispatch.occurrence_match_id,
+              occurrence_played_at: dispatch.occurrence_played_at,
+              apx: dispatch.apx,
+              total_occurrences: dispatch.total_occurrences,
+              payload_text: dispatch.payload_text,
+              recipients_snapshot: dispatch.recipients_snapshot,
+              transport_status: dispatch.transport_status,
+              transport_response: dispatch.transport_response,
+              sent_at: dispatch.sent_at,
+              created_at: dispatch.created_at,
+              updated_at: dispatch.updated_at,
+            });
+          }
+
+          return null;
+        },
+      );
     }
 
     const result = {
@@ -524,7 +758,7 @@ export class AlertsService {
       skippedCount,
       replaceExisting,
       skipDuplicates,
-      rules: createdRules.map((rule) => serializeRule(rule)),
+      rules: createdRules.map((rule: AlertRuleEntity) => serializeRule(rule)),
     };
 
     await this.persistLocalRulesStateIfVolatile();
@@ -543,13 +777,17 @@ export class AlertsService {
   async deleteRule(ruleId: bigint) {
     const deletedRule = await withAlertsPersistence(
       async () => {
-        const existingRule = await prisma.alert_method_rules.findUnique({ where: { id: ruleId } });
+        const existingRule = await prisma.alert_method_rules.findUnique({
+          where: { id: ruleId },
+        });
         if (!existingRule) {
           return null;
         }
 
         await prisma.$transaction([
-          prisma.alert_method_dispatches.deleteMany({ where: { rule_id: ruleId } }),
+          prisma.alert_method_dispatches.deleteMany({
+            where: { rule_id: ruleId },
+          }),
           prisma.alert_method_rules.delete({ where: { id: ruleId } }),
         ]);
 
@@ -569,7 +807,9 @@ export class AlertsService {
 
   async saveRulesBackupToLocalFile() {
     const backup = await this.exportRulesBackup();
-    return this.writeRulesBackupToLocalFile(backup, { writeVersionedCopy: true });
+    return this.writeRulesBackupToLocalFile(backup, {
+      writeVersionedCopy: true,
+    });
   }
 
   async persistLocalRulesStateIfVolatile() {
@@ -579,14 +819,19 @@ export class AlertsService {
 
     try {
       const backup = await this.exportRulesBackup();
-      return await this.writeRulesBackupToLocalFile(backup, { writeVersionedCopy: false });
+      return await this.writeRulesBackupToLocalFile(backup, {
+        writeVersionedCopy: false,
+      });
     } catch (error) {
-      console.error("Erro ao persistir estado local de alertas", error);
+      log.error({ err: error }, "Erro ao persistir estado local de alertas");
       return null;
     }
   }
 
-  private async writeRulesBackupToLocalFile(backup: AlertRulesBackup, options: { writeVersionedCopy: boolean }) {
+  private async writeRulesBackupToLocalFile(
+    backup: AlertRulesBackup,
+    options: { writeVersionedCopy: boolean },
+  ) {
     const latestFileName = `alerts-backup-${backup.exportedAt.slice(0, 19).replace(/[:T]/g, "-")}.json`;
     const latestVersionPath = resolve(ALERTS_LOCAL_BACKUP_DIR, latestFileName);
     const serialized = JSON.stringify(backup, null, 2);
@@ -598,7 +843,9 @@ export class AlertsService {
     await writeFile(ALERTS_LOCAL_BACKUP_LATEST_PATH, serialized, "utf8");
 
     return {
-      filePath: options.writeVersionedCopy ? latestVersionPath : ALERTS_LOCAL_BACKUP_LATEST_PATH,
+      filePath: options.writeVersionedCopy
+        ? latestVersionPath
+        : ALERTS_LOCAL_BACKUP_LATEST_PATH,
       latestAliasPath: ALERTS_LOCAL_BACKUP_LATEST_PATH,
       exportedAt: backup.exportedAt,
       rulesCount: backup.rules.length,
@@ -634,7 +881,9 @@ export class AlertsService {
   async listLocalBackupHistory(limit = 12): Promise<LocalBackupHistoryItem[]> {
     try {
       const fileNames = await readdir(ALERTS_LOCAL_BACKUP_DIR);
-      const versionedFiles = fileNames.filter((fileName) => /^alerts-backup-.*\.json$/i.test(fileName));
+      const versionedFiles = fileNames.filter((fileName) =>
+        /^alerts-backup-.*\.json$/i.test(fileName),
+      );
 
       const snapshots = await Promise.all(
         versionedFiles.map(async (fileName) => {
@@ -707,8 +956,10 @@ export class AlertsService {
       return null;
     }
 
-    const nextLeagueType = input.leagueType ?? (existingRule.league_type as AlertLeagueType);
-    const nextSeries = input.series === undefined ? existingRule.series : input.series;
+    const nextLeagueType =
+      input.leagueType ?? (existingRule.league_type as AlertLeagueType);
+    const nextSeries =
+      input.series === undefined ? existingRule.series : input.series;
     if (nextSeries && nextLeagueType !== "GT LEAGUE") {
       throw new Error("series so pode ser usada com GT LEAGUE");
     }
@@ -722,18 +973,42 @@ export class AlertsService {
       () =>
         updateMemoryRule(ruleId, {
           ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.isActive !== undefined ? { is_active: input.isActive } : {}),
-          ...(input.transportType !== undefined ? { transport_channel: input.transportType } : {}),
-          ...(input.leagueType !== undefined ? { league_type: input.leagueType } : {}),
-          ...(input.methodCode !== undefined ? { method_code: input.methodCode } : {}),
-          ...(input.series !== undefined ? { series: input.series ?? null } : {}),
-          ...(input.playerName !== undefined ? { player_name: normalizeOptionalString(input.playerName) } : {}),
-          ...(input.apxMin !== undefined ? { apx_min: new Prisma.Decimal(input.apxMin) } : {}),
-          ...(input.minOccurrences !== undefined ? { min_occurrences: input.minOccurrences } : {}),
-          ...(input.windowDays !== undefined ? { window_days: input.windowDays } : {}),
-          ...(input.recipients !== undefined ? { recipients: serializeRecipients(input.recipients) } : {}),
-          ...(input.webhookUrl !== undefined ? { webhook_url: normalizeOptionalString(input.webhookUrl) } : {}),
-          ...(input.note !== undefined ? { note: normalizeOptionalString(input.note) } : {}),
+          ...(input.isActive !== undefined
+            ? { is_active: input.isActive }
+            : {}),
+          ...(input.transportType !== undefined
+            ? { transport_channel: input.transportType }
+            : {}),
+          ...(input.leagueType !== undefined
+            ? { league_type: input.leagueType }
+            : {}),
+          ...(input.methodCode !== undefined
+            ? { method_code: input.methodCode }
+            : {}),
+          ...(input.series !== undefined
+            ? { series: input.series ?? null }
+            : {}),
+          ...(input.playerName !== undefined
+            ? { player_name: normalizeOptionalString(input.playerName) }
+            : {}),
+          ...(input.apxMin !== undefined
+            ? { apx_min: new Prisma.Decimal(input.apxMin) }
+            : {}),
+          ...(input.minOccurrences !== undefined
+            ? { min_occurrences: input.minOccurrences }
+            : {}),
+          ...(input.windowDays !== undefined
+            ? { window_days: input.windowDays }
+            : {}),
+          ...(input.recipients !== undefined
+            ? { recipients: serializeRecipients(input.recipients) }
+            : {}),
+          ...(input.webhookUrl !== undefined
+            ? { webhook_url: normalizeOptionalString(input.webhookUrl) }
+            : {}),
+          ...(input.note !== undefined
+            ? { note: normalizeOptionalString(input.note) }
+            : {}),
         }),
     );
 
@@ -746,8 +1021,12 @@ export class AlertsService {
     return serializedRule;
   }
 
-  async listDispatches(options: { ruleId?: bigint; limit?: number } = {}) {
-    const dispatches = await withAlertsPersistence(
+  async listDispatches(
+    options: { ruleId?: bigint; limit?: number } = {},
+  ): Promise<Array<ReturnType<typeof serializeDispatch>>> {
+    const dispatches = await withAlertsPersistence<
+      AlertDispatchWithRuleEntity[]
+    >(
       () =>
         prisma.alert_method_dispatches.findMany({
           where: options.ruleId ? { rule_id: options.ruleId } : undefined,
@@ -770,17 +1049,24 @@ export class AlertsService {
         })),
     );
 
-    return dispatches.map((dispatch) => serializeDispatch(dispatch));
+    return dispatches.map((dispatch: AlertDispatchWithRuleEntity) =>
+      serializeDispatch(dispatch),
+    );
   }
 
-  async listOpenFutureSignals() {
+  async listOpenFutureSignals(options: { includeRulePreview?: boolean } = {}) {
     const now = new Date();
-    const dispatches = await withAlertsPersistence(
+    const nowMs = now.getTime();
+    const futureCutoff = new Date(nowMs + OPEN_SIGNAL_LOOKAHEAD_MS);
+    const futureDispatches = await withAlertsPersistence(
       () =>
         prisma.alert_method_dispatches.findMany({
           where: {
             transport_status: { in: ["sent", "skipped"] },
-            occurrence_played_at: { gt: now },
+            occurrence_played_at: {
+              gt: now,
+              lte: futureCutoff,
+            },
           },
           orderBy: [{ occurrence_played_at: "asc" }, { created_at: "asc" }],
         }),
@@ -788,33 +1074,141 @@ export class AlertsService {
         listMemoryDispatches({ limit: Number.MAX_SAFE_INTEGER }).filter(
           (dispatch) =>
             ["sent", "skipped"].includes(dispatch.transport_status) &&
-            dispatch.occurrence_played_at.getTime() > now.getTime(),
+            dispatch.occurrence_played_at.getTime() > now.getTime() &&
+            dispatch.occurrence_played_at.getTime() <= futureCutoff.getTime(),
         ),
     );
+    const inFlightDispatches = await this.listPendingFutureResultDispatches(
+      undefined,
+      {
+        excludeResolved: true,
+        excludeCompletedFixtures: true,
+        lookbackMs: OPEN_SIGNAL_LOOKBACK_MS,
+      },
+    );
 
-    const openSignals: Array<{
+    const openSignalsByKey = new Map<
+      string,
+      {
+        signalKey: string;
+        confrontationLabel: string;
+        leagueType: string;
+        methodCode: string;
+        series: string | null;
+        apx: number;
+        totalOccurrences: number;
+        wins: number;
+        draws: number;
+        losses: number;
+        occurrencePlayedAt: string;
+        localPlayedAtLabel: string;
+      }
+    >();
+
+    const registerSignal = (signal: {
+      signalKey: string;
       confrontationLabel: string;
+      leagueType: string;
       methodCode: string;
+      series: string | null;
       apx: number;
+      totalOccurrences: number;
+      wins: number;
+      draws: number;
+      losses: number;
       occurrencePlayedAt: string;
       localPlayedAtLabel: string;
-    }> = [];
+    }) => {
+      if (!signal.signalKey || openSignalsByKey.has(signal.signalKey)) {
+        return;
+      }
 
-    for (const dispatch of dispatches) {
+      if (!isOpenSignalInCurrentRange(signal.occurrencePlayedAt, nowMs)) {
+        return;
+      }
+
+      openSignalsByKey.set(signal.signalKey, signal);
+    };
+
+    for (const dispatch of [...futureDispatches, ...inFlightDispatches]) {
       const payload = parseStoredDispatchPayload(dispatch.payload_text);
       const signal = extractPendingFutureSignal(payload);
       if (!signal) continue;
 
-      openSignals.push({
-        confrontationLabel: signal.confrontationLabel ?? dispatch.confrontation_label,
+      registerSignal({
+        signalKey: signal.signalKey ?? dispatch.signal_key,
+        confrontationLabel:
+          signal.confrontationLabel ?? dispatch.confrontation_label,
+        leagueType: payload?.rule?.leagueType ?? "GT LEAGUE",
         methodCode: signal.methodCode ?? "",
+        series: signal.groupLabel ?? null,
         apx: signal.apx ?? Number(dispatch.apx),
-        occurrencePlayedAt: signal.occurrencePlayedAt ?? dispatch.occurrence_played_at.toISOString(),
+        totalOccurrences:
+          typeof signal.totalOccurrences === "number"
+            ? signal.totalOccurrences
+            : dispatch.total_occurrences,
+        wins: typeof signal.wins === "number" ? signal.wins : 0,
+        draws: typeof signal.draws === "number" ? signal.draws : 0,
+        losses: typeof signal.losses === "number" ? signal.losses : 0,
+        occurrencePlayedAt:
+          signal.occurrencePlayedAt ??
+          dispatch.occurrence_played_at.toISOString(),
         localPlayedAtLabel: signal.localPlayedAtLabel ?? "",
       });
     }
 
-    return openSignals;
+    if (options.includeRulePreview) {
+      const activeRules =
+        (await withAlertsPersistence(
+          () =>
+            prisma.alert_method_rules.findMany({
+              where: { is_active: true },
+              orderBy: [{ id: "asc" }],
+            }),
+          () =>
+            listMemoryRules({ onlyActive: true }).sort((left, right) =>
+              Number(left.id - right.id),
+            ),
+        )) || [];
+
+      for (const rule of activeRules) {
+        const preview = await this.collectRuleSignals(rule, {
+          respectRuleCreatedAt: false,
+          onlyDispatchable: true,
+          currentWindowOnly: true,
+        });
+
+        for (const signal of preview.signals) {
+          registerSignal({
+            signalKey: signal.signalKey,
+            confrontationLabel: signal.confrontationLabel,
+            leagueType: rule.league_type,
+            methodCode: signal.methodCode ?? "",
+            series: signal.groupLabel ?? null,
+            apx: signal.apx,
+            totalOccurrences: signal.totalOccurrences,
+            wins: typeof signal.wins === "number" ? signal.wins : 0,
+            draws: typeof signal.draws === "number" ? signal.draws : 0,
+            losses: typeof signal.losses === "number" ? signal.losses : 0,
+            occurrencePlayedAt: signal.occurrencePlayedAt,
+            localPlayedAtLabel: signal.localPlayedAtLabel,
+          });
+        }
+      }
+    }
+
+    return Array.from(openSignalsByKey.values()).sort(
+      (left, right) =>
+        new Date(left.occurrencePlayedAt).getTime() -
+          new Date(right.occurrencePlayedAt).getTime() ||
+        left.confrontationLabel.localeCompare(
+          right.confrontationLabel,
+          "pt-BR",
+          {
+            sensitivity: "base",
+          },
+        ),
+    );
   }
 
   async applyOddsToDispatch(input: {
@@ -839,7 +1233,9 @@ export class AlertsService {
         }),
       () =>
         listMemoryDispatches({ limit: Number.MAX_SAFE_INTEGER }).filter(
-          (d) => ["sent", "skipped"].includes(d.transport_status) && d.occurrence_played_at.getTime() > cutoff.getTime(),
+          (d) =>
+            ["sent", "skipped"].includes(d.transport_status) &&
+            d.occurrence_played_at.getTime() > cutoff.getTime(),
         ),
     );
 
@@ -847,14 +1243,20 @@ export class AlertsService {
     const inputHome = normalize(input.homePlayer);
     const inputAway = normalize(input.awayPlayer);
 
-    const updated: Array<{ dispatchId: string; confrontationLabel: string; status: string }> = [];
+    const updated: Array<{
+      dispatchId: string;
+      confrontationLabel: string;
+      status: string;
+    }> = [];
 
     for (const dispatch of dispatches) {
       const payload = parseStoredDispatchPayload(dispatch.payload_text);
       const signal = extractPendingFutureSignal(payload);
       if (!signal) continue;
 
-      const label = (signal.confrontationLabel ?? dispatch.confrontation_label).toLowerCase();
+      const label = (
+        signal.confrontationLabel ?? dispatch.confrontation_label
+      ).toLowerCase();
       const player = normalize(signal.playerName ?? "");
       const opponent = normalize(signal.opponentName ?? "");
 
@@ -873,17 +1275,28 @@ export class AlertsService {
       if (!originalMessage) continue;
 
       const oddsLine = `<b>OD:</b> ${escapeHtml(input.homePlayer)} ${input.homeOdd.toFixed(2)} | ${escapeHtml(input.awayPlayer)} ${input.awayOdd.toFixed(2)}`;
-      const linkLine = input.link ? `<b>Link:</b> ${escapeHtml(input.link)}` : null;
-      const editedMessage = [originalMessage, "", oddsLine, ...(linkLine ? [linkLine] : [])].join("\n");
+      const linkLine = input.link
+        ? `<b>Link:</b> ${escapeHtml(input.link)}`
+        : null;
+      const editedMessage = [
+        originalMessage,
+        "",
+        oddsLine,
+        ...(linkLine ? [linkLine] : []),
+      ].join("\n");
 
       const chatIds = targets.map((t) => t.chatId);
       const editMap = new Map(targets.map((t) => [t.chatId, t.messageId]));
 
       try {
-        const responseText = await sendTelegramMessage(chatIds, editedMessage, { editMessageIdByChatId: editMap });
+        const responseText = await sendTelegramMessage(chatIds, editedMessage, {
+          editMessageIdByChatId: editMap,
+        });
 
         // Update stored payload with odds info
-        const updatedPayload = payload ? { ...payload } : {} as StoredDispatchPayload;
+        const updatedPayload = payload
+          ? { ...payload }
+          : ({} as StoredDispatchPayload);
         if (updatedPayload.signal) {
           (updatedPayload.signal as Record<string, unknown>).odds = {
             home: input.homeOdd,
@@ -899,18 +1312,31 @@ export class AlertsService {
               where: { id: dispatch.id },
               data: {
                 payload_text: JSON.stringify(updatedPayload),
-                transport_response: [dispatch.transport_response, `[odds-update] ${responseText}`].filter(Boolean).join("\n"),
+                transport_response: [
+                  dispatch.transport_response,
+                  `[odds-update] ${responseText}`,
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
               },
             }),
           () =>
             updateMemoryDispatch(dispatch.id, {
               payload_text: JSON.stringify(updatedPayload),
-              transport_response: [dispatch.transport_response, `[odds-update] ${responseText}`].filter(Boolean).join("\n"),
+              transport_response: [
+                dispatch.transport_response,
+                `[odds-update] ${responseText}`,
+              ]
+                .filter(Boolean)
+                .join("\n"),
             }),
         );
 
         // Log to Google Sheets
-        const rule = "rule" in dispatch && dispatch.rule ? dispatch.rule as AlertRuleEntity : null;
+        const rule =
+          "rule" in dispatch && dispatch.rule
+            ? (dispatch.rule as AlertRuleEntity)
+            : null;
         await logGoogleSheetsDispatchBestEffort({
           loggedAt: new Date().toISOString(),
           source: "odds-update",
@@ -919,7 +1345,9 @@ export class AlertsService {
           transportStatus: "sent",
           transportInfo: responseText || "Odds aplicadas na mensagem",
           sentAt: new Date().toISOString(),
-          rule: rule ? serializeRule(rule) : ({} as ReturnType<typeof serializeRule>),
+          rule: rule
+            ? serializeRule(rule)
+            : ({} as ReturnType<typeof serializeRule>),
           signal: {
             signalKey: dispatch.signal_key,
             rootSignalKey: dispatch.signal_key,
@@ -963,7 +1391,10 @@ export class AlertsService {
     return { matched: updated.length, dispatches: updated };
   }
 
-  async sendTelegramTestMessage(input: { chatIds: string[]; message?: string }) {
+  async sendTelegramTestMessage(input: {
+    chatIds: string[];
+    message?: string;
+  }) {
     const chatIds = input.chatIds.map((item) => item.trim()).filter(Boolean);
     if (!chatIds.length) {
       throw new Error("Informe pelo menos um chat_id do Telegram");
@@ -971,7 +1402,8 @@ export class AlertsService {
 
     const responseText = await sendTelegramMessage(
       chatIds,
-      input.message?.trim() || "Teste de integracao Telegram do Sheva: transporte configurado com sucesso.",
+      input.message?.trim() ||
+        "Teste de integracao Telegram do Sheva: transporte configurado com sucesso.",
     );
 
     return {
@@ -980,16 +1412,26 @@ export class AlertsService {
     };
   }
 
-  async sendGoogleSheetsTest(input: { confrontationLabel?: string; message?: string; rootSignalKey?: string } = {}) {
+  async sendGoogleSheetsTest(
+    input: {
+      confrontationLabel?: string;
+      message?: string;
+      rootSignalKey?: string;
+    } = {},
+  ) {
     const webhookUrl = env.ALERTS_GOOGLE_SHEETS_WEBHOOK_URL;
     if (!webhookUrl) {
       throw new Error("ALERTS_GOOGLE_SHEETS_WEBHOOK_URL nao configurada");
     }
 
     const occurredAt = new Date();
-    const confrontationLabel = input.confrontationLabel?.trim() || "TESTE GOOGLE SHEETS x ALERTAS";
-    const inferredPlayers = inferPlayersFromConfrontationLabel(confrontationLabel);
-    const signalKey = input.rootSignalKey?.trim() || `google-sheets-test::${occurredAt.getTime()}`;
+    const confrontationLabel =
+      input.confrontationLabel?.trim() || "TESTE GOOGLE SHEETS x ALERTAS";
+    const inferredPlayers =
+      inferPlayersFromConfrontationLabel(confrontationLabel);
+    const signalKey =
+      input.rootSignalKey?.trim() ||
+      `google-sheets-test::${occurredAt.getTime()}`;
     const payload: GoogleSheetsDispatchLogPayload = {
       loggedAt: occurredAt.toISOString(),
       source: "manual",
@@ -1049,7 +1491,9 @@ export class AlertsService {
         sourceView: "future-confrontations",
       },
       recipients: ["google-sheets-test"],
-      message: input.message?.trim() || `Teste do Google Sheets para ${confrontationLabel}`,
+      message:
+        input.message?.trim() ||
+        `Teste do Google Sheets para ${confrontationLabel}`,
     };
 
     const response = await postGoogleSheetsDispatch(webhookUrl, payload);
@@ -1065,12 +1509,17 @@ export class AlertsService {
     };
   }
 
-  async resolveFutureResults(options: { ruleId?: bigint; source?: DispatchSource } = {}) {
-    const candidateDispatches = await this.listPendingFutureResultDispatches(options.ruleId);
+  async resolveFutureResults(
+    options: { ruleId?: bigint; source?: DispatchSource } = {},
+  ) {
+    const candidateDispatches = await this.listPendingFutureResultDispatches(
+      options.ruleId,
+    );
     const candidateDispatchesByRule = new Map<bigint, AlertDispatchEntity[]>();
 
     for (const dispatch of candidateDispatches) {
-      const ruleDispatches = candidateDispatchesByRule.get(dispatch.rule_id) ?? [];
+      const ruleDispatches =
+        candidateDispatchesByRule.get(dispatch.rule_id) ?? [];
       ruleDispatches.push(dispatch);
       candidateDispatchesByRule.set(dispatch.rule_id, ruleDispatches);
     }
@@ -1085,7 +1534,11 @@ export class AlertsService {
       fixturePlayedAt: string | null;
       result: string | null;
       fullTimeScore: string | null;
-      deliveryStatus: DispatchOutcome["status"] | "pending-result" | "rule-not-found" | "already-resolved";
+      deliveryStatus:
+        | DispatchOutcome["status"]
+        | "pending-result"
+        | "rule-not-found"
+        | "already-resolved";
       deliveryInfo: string;
     }>;
     let pendingFixtures = 0;
@@ -1093,7 +1546,10 @@ export class AlertsService {
     let missingRules = 0;
     let dispatchedResults = 0;
 
-    for (const [ruleId, ruleDispatches] of candidateDispatchesByRule.entries()) {
+    for (const [
+      ruleId,
+      ruleDispatches,
+    ] of candidateDispatchesByRule.entries()) {
       const rule = await this.getRuleEntity(ruleId);
       if (!rule) {
         missingRules += ruleDispatches.length;
@@ -1102,14 +1558,17 @@ export class AlertsService {
             dispatchId: dispatch.id.toString(),
             ruleId: dispatch.rule_id.toString(),
             signalKey: dispatch.signal_key,
-            resolvedSignalKey: buildResolvedFutureSignalKey(dispatch.signal_key),
+            resolvedSignalKey: buildResolvedFutureSignalKey(
+              dispatch.signal_key,
+            ),
             confrontationLabel: dispatch.confrontation_label,
             fixtureId: dispatch.occurrence_match_id,
             fixturePlayedAt: null,
             result: null,
             fullTimeScore: null,
             deliveryStatus: "rule-not-found",
-            deliveryInfo: "Regra original nao encontrada para gerar o acompanhamento do resultado",
+            deliveryInfo:
+              "Regra original nao encontrada para gerar o acompanhamento do resultado",
           });
         }
 
@@ -1125,9 +1584,15 @@ export class AlertsService {
           continue;
         }
 
-        const resolvedSignalKey = buildResolvedFutureSignalKey(dispatch.signal_key);
-        const existingResolvedDispatch = dispatchIndex.get(resolvedSignalKey) ?? null;
-        if (existingResolvedDispatch && existingResolvedDispatch.transport_status !== "failed") {
+        const resolvedSignalKey = buildResolvedFutureSignalKey(
+          dispatch.signal_key,
+        );
+        const existingResolvedDispatch =
+          dispatchIndex.get(resolvedSignalKey) ?? null;
+        if (
+          existingResolvedDispatch &&
+          existingResolvedDispatch.transport_status !== "failed"
+        ) {
           alreadyResolved += 1;
           items.push({
             dispatchId: dispatch.id.toString(),
@@ -1136,16 +1601,20 @@ export class AlertsService {
             resolvedSignalKey,
             confrontationLabel: dispatch.confrontation_label,
             fixtureId: dispatch.occurrence_match_id,
-            fixturePlayedAt: existingResolvedDispatch.occurrence_played_at.toISOString(),
+            fixturePlayedAt:
+              existingResolvedDispatch.occurrence_played_at.toISOString(),
             result: null,
             fullTimeScore: null,
             deliveryStatus: "already-resolved",
-            deliveryInfo: "Resultado deste jogo futuro ja foi acompanhado anteriormente",
+            deliveryInfo:
+              "Resultado deste jogo futuro ja foi acompanhado anteriormente",
           });
           continue;
         }
 
-        const completedFixture = await findCompletedFutureFixtureById(dispatch.occurrence_match_id);
+        const completedFixture = await findCompletedFutureFixtureById(
+          dispatch.occurrence_match_id,
+        );
         if (!completedFixture) {
           pendingFixtures += 1;
           items.push({
@@ -1164,8 +1633,18 @@ export class AlertsService {
           continue;
         }
 
-        const resolvedSignal = buildFutureResolvedSignal(rule, dispatch, storedSignal, payload, completedFixture);
-        const outcome = await this.dispatchSignal(rule, resolvedSignal, options.source ?? "manual");
+        const resolvedSignal = buildFutureResolvedSignal(
+          rule,
+          dispatch,
+          storedSignal,
+          payload,
+          completedFixture,
+        );
+        const outcome = await this.dispatchSignal(
+          rule,
+          resolvedSignal,
+          options.source ?? "manual",
+        );
         if (outcome.wasDispatched) {
           dispatchedResults += 1;
         }
@@ -1211,7 +1690,9 @@ export class AlertsService {
             orderBy: [{ id: "asc" }],
           }),
         () =>
-          listMemoryRules({ ruleId: options.ruleId, onlyActive }).sort((left, right) => Number(left.id - right.id)),
+          listMemoryRules({ ruleId: options.ruleId, onlyActive }).sort(
+            (left, right) => Number(left.id - right.id),
+          ),
       )) || [];
 
     const evaluations = [] as Array<{
@@ -1219,7 +1700,12 @@ export class AlertsService {
       matchedRows: number;
       triggeredSignals: number;
       dispatchedSignals: number;
-      signals: Array<EvaluatedSignal & { deliveryStatus: DispatchOutcome["status"]; deliveryInfo: string }>;
+      signals: Array<
+        EvaluatedSignal & {
+          deliveryStatus: DispatchOutcome["status"];
+          deliveryInfo: string;
+        }
+      >;
     }>;
     let totalSignals = 0;
     let totalDispatched = 0;
@@ -1254,7 +1740,10 @@ export class AlertsService {
     };
   }
 
-  async previewCurrentSignals(ruleId: bigint, options: { limit?: number } = {}) {
+  async previewCurrentSignals(
+    ruleId: bigint,
+    options: { limit?: number } = {},
+  ) {
     const rule = await this.getRuleEntity(ruleId);
     if (!rule) {
       return null;
@@ -1277,7 +1766,10 @@ export class AlertsService {
     };
   }
 
-  async dispatchCurrentSignals(ruleId: bigint, options: { maxSignals?: number } = {}) {
+  async dispatchCurrentSignals(
+    ruleId: bigint,
+    options: { maxSignals?: number } = {},
+  ) {
     const rule = await this.getRuleEntity(ruleId);
     if (!rule) {
       return null;
@@ -1289,9 +1781,20 @@ export class AlertsService {
       currentWindowOnly: true,
     });
 
-    const maxSignals = typeof options.maxSignals === "number" ? Math.max(1, options.maxSignals) : preview.signals.length;
-    const targetSignals = typeof options.maxSignals === "number" ? preview.signals.slice(0, maxSignals) : preview.signals;
-    const sentSignals = [] as Array<SignalPreviewItem & { deliveryStatus: DispatchOutcome["status"]; deliveryInfo: string }>;
+    const maxSignals =
+      typeof options.maxSignals === "number"
+        ? Math.max(1, options.maxSignals)
+        : preview.signals.length;
+    const targetSignals =
+      typeof options.maxSignals === "number"
+        ? preview.signals.slice(0, maxSignals)
+        : preview.signals;
+    const sentSignals = [] as Array<
+      SignalPreviewItem & {
+        deliveryStatus: DispatchOutcome["status"];
+        deliveryInfo: string;
+      }
+    >;
     let dispatchedSignals = 0;
 
     for (const signal of targetSignals) {
@@ -1342,14 +1845,21 @@ export class AlertsService {
       totalEligibleSignals: preview.signals.length,
       attemptedSignals: targetSignals.length,
       dispatchedSignals,
-      remainingSignals: Math.max(0, preview.signals.length - targetSignals.length),
+      remainingSignals: Math.max(
+        0,
+        preview.signals.length - targetSignals.length,
+      ),
       signals: sentSignals,
     };
   }
 
   async sendTestDispatch(
     ruleId: bigint,
-    input: { signalKey?: string; confrontationLabel?: string; message?: string } = {},
+    input: {
+      signalKey?: string;
+      confrontationLabel?: string;
+      message?: string;
+    } = {},
   ) {
     const rule = await this.getRuleEntity(ruleId);
     if (!rule) {
@@ -1357,8 +1867,11 @@ export class AlertsService {
     }
 
     const occurredAt = new Date();
-    const confrontationLabel = input.confrontationLabel?.trim() || "TESTE OPERACIONAL x ALERTAS";
-    const signalKey = input.signalKey?.trim() || `test::${ruleId.toString()}::${occurredAt.getTime()}`;
+    const confrontationLabel =
+      input.confrontationLabel?.trim() || "TESTE OPERACIONAL x ALERTAS";
+    const signalKey =
+      input.signalKey?.trim() ||
+      `test::${ruleId.toString()}::${occurredAt.getTime()}`;
     const recipients = parseRecipients(rule.recipients);
     const signal: EvaluatedSignal = {
       signalKey,
@@ -1417,19 +1930,42 @@ export class AlertsService {
       return null;
     }
 
-    const scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : new Date(Date.now() + 5 * 60 * 1000);
-    const confrontationLabel = input.confrontationLabel?.trim() || "TESTE FUTURO x ALERTAS";
-    const rootSignalKey = input.rootSignalKey?.trim() || `manual-future::${ruleId.toString()}::${scheduledAt.getTime()}`;
+    const scheduledAt = input.scheduledAt
+      ? new Date(input.scheduledAt)
+      : new Date(Date.now() + 5 * 60 * 1000);
+    const confrontationLabel =
+      input.confrontationLabel?.trim() || "TESTE FUTURO x ALERTAS";
+    const rootSignalKey =
+      input.rootSignalKey?.trim() ||
+      `manual-future::${ruleId.toString()}::${scheduledAt.getTime()}`;
     const occurrenceMatchId = `manual-future-${scheduledAt.getTime()}`;
     const recipients = parseRecipients(rule.recipients);
-    const initialApx = typeof input.apx === "number" ? input.apx : Math.max(0, toNumber(rule.apx_min));
-    const initialTotalOccurrences = Math.max(1, input.totalOccurrences ?? rule.min_occurrences);
-    const baseCounts = deriveManualOutcomeCounts(initialApx, initialTotalOccurrences);
-    const inferredPlayers = inferPlayersFromConfrontationLabel(confrontationLabel);
-    const triggerSequence = input.triggerSequence?.length ? input.triggerSequence : ["L", "L"];
-    const daySequence = input.daySequence?.length ? input.daySequence : ["W", "L", "L"];
-    const confrontationSequence = input.confrontationSequence?.length ? input.confrontationSequence : ["W", "L", "L"];
-    const occurrenceResults = input.occurrenceResults?.length ? input.occurrenceResults : [];
+    const initialApx =
+      typeof input.apx === "number"
+        ? input.apx
+        : Math.max(0, toNumber(rule.apx_min));
+    const initialTotalOccurrences = Math.max(
+      1,
+      input.totalOccurrences ?? rule.min_occurrences,
+    );
+    const baseCounts = deriveManualOutcomeCounts(
+      initialApx,
+      initialTotalOccurrences,
+    );
+    const inferredPlayers =
+      inferPlayersFromConfrontationLabel(confrontationLabel);
+    const triggerSequence = input.triggerSequence?.length
+      ? input.triggerSequence
+      : ["L", "L"];
+    const daySequence = input.daySequence?.length
+      ? input.daySequence
+      : ["W", "L", "L"];
+    const confrontationSequence = input.confrontationSequence?.length
+      ? input.confrontationSequence
+      : ["W", "L", "L"];
+    const occurrenceResults = input.occurrenceResults?.length
+      ? input.occurrenceResults
+      : [];
     const signal: EvaluatedSignal = {
       signalKey: rootSignalKey,
       rootSignalKey,
@@ -1492,7 +2028,12 @@ export class AlertsService {
 
   async sendTestFutureResolution(
     ruleId: bigint,
-    input: { rootSignalKey: string; result?: "W" | "D" | "L"; fullTimeScore?: string; resolvedAt?: string },
+    input: {
+      rootSignalKey: string;
+      result?: "W" | "D" | "L";
+      fullTimeScore?: string;
+      resolvedAt?: string;
+    },
   ) {
     const rule = await this.getRuleEntity(ruleId);
     if (!rule) {
@@ -1519,17 +2060,31 @@ export class AlertsService {
     const payload = parseStoredDispatchPayload(initialDispatch.payload_text);
     const storedSignal = extractPendingFutureSignal(payload);
     if (!storedSignal) {
-      throw new Error("O dispatch informado nao e um sinal futuro pendente valido");
+      throw new Error(
+        "O dispatch informado nao e um sinal futuro pendente valido",
+      );
     }
 
     const result = input.result ?? "W";
-    const resolvedAt = input.resolvedAt ? new Date(input.resolvedAt) : new Date();
-    const completedFixture = buildManualCompletedFixture(initialDispatch, storedSignal, {
-      result,
-      fullTimeScore: input.fullTimeScore,
-      resolvedAt,
-    });
-    const resolvedSignal = buildFutureResolvedSignal(rule, initialDispatch, storedSignal, payload, completedFixture);
+    const resolvedAt = input.resolvedAt
+      ? new Date(input.resolvedAt)
+      : new Date();
+    const completedFixture = buildManualCompletedFixture(
+      initialDispatch,
+      storedSignal,
+      {
+        result,
+        fullTimeScore: input.fullTimeScore,
+        resolvedAt,
+      },
+    );
+    const resolvedSignal = buildFutureResolvedSignal(
+      rule,
+      initialDispatch,
+      storedSignal,
+      payload,
+      completedFixture,
+    );
     const outcome = await this.dispatchSignal(rule, resolvedSignal, "manual");
 
     return {
@@ -1542,20 +2097,32 @@ export class AlertsService {
     };
   }
 
-  private async evaluateRule(rule: AlertRuleEntity, options: { dryRun: boolean; source: DispatchSource }) {
+  private async evaluateRule(
+    rule: AlertRuleEntity,
+    options: { dryRun: boolean; source: DispatchSource },
+  ) {
     const preview = await this.collectRuleSignals(rule, {
       respectRuleCreatedAt: true,
       onlyDispatchable: false,
       currentWindowOnly: true,
     });
 
-    const signals = [] as Array<EvaluatedSignal & { deliveryStatus: DispatchOutcome["status"]; deliveryInfo: string }>;
+    const signals = [] as Array<
+      EvaluatedSignal & {
+        deliveryStatus: DispatchOutcome["status"];
+        deliveryInfo: string;
+      }
+    >;
     let dispatchedSignals = 0;
 
     for (const signal of preview.signals) {
       const evaluatedSignal = signalToEvaluatedSignal(signal);
       const outcome: DispatchOutcome = options.dryRun
-        ? { status: "dry_run", info: "Execucao em modo simulacao", wasDispatched: false }
+        ? {
+            status: "dry_run",
+            info: "Execucao em modo simulacao",
+            wasDispatched: false,
+          }
         : await this.dispatchSignal(rule, evaluatedSignal, options.source);
 
       if (outcome.wasDispatched) {
@@ -1587,7 +2154,12 @@ export class AlertsService {
 
   private async collectRuleSignals(
     rule: AlertRuleEntity,
-    options: { respectRuleCreatedAt: boolean; limit?: number; onlyDispatchable: boolean; currentWindowOnly?: boolean },
+    options: {
+      respectRuleCreatedAt: boolean;
+      limit?: number;
+      onlyDispatchable: boolean;
+      currentWindowOnly?: boolean;
+    },
   ) {
     const recipients = parseRecipients(rule.recipients);
     const existingDispatches = await this.listRuleDispatchIndex(rule.id);
@@ -1599,24 +2171,76 @@ export class AlertsService {
     // Uses direction-agnostic normalization so "EROS||CRYSIS" matches "CRYSIS||EROS".
     const pendingFutureConfrontationKeys = new Set<string>();
     for (const [signalKey, dispatch] of existingDispatches) {
-      if (dispatch.transport_status !== "sent" && dispatch.transport_status !== "skipped") continue;
+      if (
+        dispatch.transport_status !== "sent" &&
+        dispatch.transport_status !== "skipped"
+      )
+        continue;
       const resolvedKey = buildResolvedFutureSignalKey(signalKey);
       if (existingDispatches.has(resolvedKey)) continue; // already resolved
       const payload = parseStoredDispatchPayload(dispatch.payload_text);
       if (extractPendingFutureSignal(payload)) {
-        pendingFutureConfrontationKeys.add(normalizePairKey(dispatch.confrontation_key));
+        pendingFutureConfrontationKeys.add(
+          normalizePairKey(dispatch.confrontation_key),
+        );
       }
     }
 
     if (options.currentWindowOnly) {
-      if (rule.method_code === "4D Jogador" || rule.method_code === "4W Jogador") {
-        const futurePlayerSessions = await getFuturePlayerSessionMethodsLive(rule.league_type as AlertLeagueType, {
-          methodCode: rule.method_code as "4D Jogador" | "4W Jogador",
-          series: (rule.series as AlertSeriesCode | null) ?? undefined,
-          days: rule.window_days,
-          apxMin: toNumber(rule.apx_min),
-          minOccurrences: rule.min_occurrences,
-        });
+      if (
+        rule.method_code === "4D Jogador" ||
+        rule.method_code === "4W Jogador" ||
+        rule.method_code === "Após DL" ||
+        rule.method_code === "Após WDL" ||
+        rule.method_code === "Após LWW" ||
+        rule.method_code === "Após LL" ||
+        rule.method_code === "Após DD" ||
+        rule.method_code === "Após LDW" ||
+        rule.method_code === "Após DLL" ||
+        rule.method_code === "Após WLD" ||
+        rule.method_code === "Após DLD" ||
+        rule.method_code === "Após LLW" ||
+        rule.method_code === "Após LWL" ||
+        rule.method_code === "Após WDD" ||
+        rule.method_code === "Após DLW" ||
+        rule.method_code === "Após LLL" ||
+        rule.method_code === "Após LWD" ||
+        rule.method_code === "Após WWL" ||
+        rule.method_code === "Após WWD" ||
+        rule.method_code === "Após DDW" ||
+        rule.method_code === "Após LLLL"
+      ) {
+        const futurePlayerSessions = await getFuturePlayerSessionMethodsLive(
+          rule.league_type as AlertLeagueType,
+          {
+            methodCode: rule.method_code as
+              | "4D Jogador"
+              | "4W Jogador"
+              | "Após DL"
+              | "Após WDL"
+              | "Após LWW"
+              | "Após LL"
+              | "Após DD"
+              | "Após LDW"
+              | "Após DLL"
+              | "Após WLD"
+              | "Após DLD"
+              | "Após LLW"
+              | "Após LWL"
+              | "Após WDD"
+              | "Após DLW"
+              | "Após LLL"
+              | "Após LWD"
+              | "Após WWL"
+              | "Após WWD"
+              | "Após DDW"
+              | "Após LLLL",
+            series: (rule.series as AlertSeriesCode | null) ?? undefined,
+            days: rule.window_days,
+            apxMin: toNumber(rule.apx_min),
+            minOccurrences: rule.min_occurrences,
+          },
+        );
         let totalMatchingSignals = 0;
 
         for (const row of futurePlayerSessions.rows) {
@@ -1629,16 +2253,31 @@ export class AlertsService {
             continue;
           }
 
-          if (options.respectRuleCreatedAt && fixtureAt.getTime() < rule.created_at.getTime()) {
+          if (
+            options.respectRuleCreatedAt &&
+            fixtureAt.getTime() < rule.created_at.getTime()
+          ) {
             continue;
           }
 
           totalMatchingSignals += 1;
 
-          const baseSignal = buildFuturePlayerSessionSignal(rule, row, futurePlayerSessions.currentWindow.dayKey, recipients);
-          const existingDispatch = existingDispatches.get(baseSignal.signalKey) ?? null;
-          const coveredByPendingFuture = pendingFutureConfrontationKeys.has(normalizePairKey(baseSignal.confrontationKey));
-          const alreadyProcessed = Boolean((existingDispatch && existingDispatch.transport_status !== "failed") || coveredByPendingFuture);
+          const baseSignal = buildFuturePlayerSessionSignal(
+            rule,
+            row,
+            futurePlayerSessions.currentWindow.dayKey,
+            recipients,
+          );
+          const existingDispatch =
+            existingDispatches.get(baseSignal.signalKey) ?? null;
+          const coveredByPendingFuture = pendingFutureConfrontationKeys.has(
+            normalizePairKey(baseSignal.confrontationKey),
+          );
+          const alreadyProcessed = Boolean(
+            (existingDispatch &&
+              existingDispatch.transport_status !== "failed") ||
+            coveredByPendingFuture,
+          );
           if (alreadyProcessed) {
             alreadyProcessedSignals += 1;
             if (options.onlyDispatchable) {
@@ -1654,22 +2293,38 @@ export class AlertsService {
           });
         }
 
-        signals.sort((left, right) => new Date(left.occurrencePlayedAt).getTime() - new Date(right.occurrencePlayedAt).getTime());
+        signals.sort(
+          (left, right) =>
+            new Date(left.occurrencePlayedAt).getTime() -
+            new Date(right.occurrencePlayedAt).getTime(),
+        );
 
         return {
-          matchedRows: futurePlayerSessions.rows.filter((row) => matchesRulePlayerFilter(rule, row.playerName)).length,
+          matchedRows: futurePlayerSessions.rows.filter((row) =>
+            matchesRulePlayerFilter(rule, row.playerName),
+          ).length,
           totalMatchingSignals,
           alreadyProcessedSignals,
-          signals: typeof options.limit === "number" ? signals.slice(0, options.limit) : signals,
+          signals:
+            typeof options.limit === "number"
+              ? signals.slice(0, options.limit)
+              : signals,
         };
       }
 
-      if (rule.method_code === "Fav T1" || rule.method_code === "Fav T2" || rule.method_code === "Fav T3") {
-        const favResults = await getFutureFavoritoVsFracoMethodsLive(rule.league_type as AlertLeagueType, {
-          methodCode: rule.method_code as "Fav T1" | "Fav T2" | "Fav T3",
-          series: (rule.series as AlertSeriesCode | null) ?? undefined,
-          days: rule.window_days,
-        });
+      if (
+        rule.method_code === "Fav T1" ||
+        rule.method_code === "Fav T2" ||
+        rule.method_code === "Fav T3"
+      ) {
+        const favResults = await getFutureFavoritoVsFracoMethodsLive(
+          rule.league_type as AlertLeagueType,
+          {
+            methodCode: rule.method_code as "Fav T1" | "Fav T2" | "Fav T3",
+            series: (rule.series as AlertSeriesCode | null) ?? undefined,
+            days: rule.window_days,
+          },
+        );
         let totalMatchingSignals = 0;
 
         for (const row of favResults.rows) {
@@ -1682,16 +2337,31 @@ export class AlertsService {
             continue;
           }
 
-          if (options.respectRuleCreatedAt && fixtureAt.getTime() < rule.created_at.getTime()) {
+          if (
+            options.respectRuleCreatedAt &&
+            fixtureAt.getTime() < rule.created_at.getTime()
+          ) {
             continue;
           }
 
           totalMatchingSignals += 1;
 
-          const baseSignal = buildFuturePlayerSessionSignal(rule, row, favResults.currentWindow.dayKey, recipients);
-          const existingDispatch = existingDispatches.get(baseSignal.signalKey) ?? null;
-          const coveredByPendingFuture = pendingFutureConfrontationKeys.has(normalizePairKey(baseSignal.confrontationKey));
-          const alreadyProcessed = Boolean((existingDispatch && existingDispatch.transport_status !== "failed") || coveredByPendingFuture);
+          const baseSignal = buildFuturePlayerSessionSignal(
+            rule,
+            row,
+            favResults.currentWindow.dayKey,
+            recipients,
+          );
+          const existingDispatch =
+            existingDispatches.get(baseSignal.signalKey) ?? null;
+          const coveredByPendingFuture = pendingFutureConfrontationKeys.has(
+            normalizePairKey(baseSignal.confrontationKey),
+          );
+          const alreadyProcessed = Boolean(
+            (existingDispatch &&
+              existingDispatch.transport_status !== "failed") ||
+            coveredByPendingFuture,
+          );
           if (alreadyProcessed) {
             alreadyProcessedSignals += 1;
             if (options.onlyDispatchable) {
@@ -1707,23 +2377,48 @@ export class AlertsService {
           });
         }
 
-        signals.sort((left, right) => new Date(left.occurrencePlayedAt).getTime() - new Date(right.occurrencePlayedAt).getTime());
+        signals.sort(
+          (left, right) =>
+            new Date(left.occurrencePlayedAt).getTime() -
+            new Date(right.occurrencePlayedAt).getTime(),
+        );
 
         return {
-          matchedRows: favResults.rows.filter((row) => matchesRulePlayerFilter(rule, row.playerName)).length,
+          matchedRows: favResults.rows.filter((row) =>
+            matchesRulePlayerFilter(rule, row.playerName),
+          ).length,
           totalMatchingSignals,
           alreadyProcessedSignals,
-          signals: typeof options.limit === "number" ? signals.slice(0, options.limit) : signals,
+          signals:
+            typeof options.limit === "number"
+              ? signals.slice(0, options.limit)
+              : signals,
         };
       }
 
-      const futureConfrontations = await methodsService.getFutureConfrontationMethods(rule.league_type as AlertLeagueType, {
-        series: (rule.series as AlertSeriesCode | null) ?? undefined,
-        methodCode: rule.method_code as AlertMethodCode,
-        days: rule.window_days,
-        apxMin: toNumber(rule.apx_min),
-        minOccurrences: rule.min_occurrences,
-      });
+      if (!isAlertConfrontationMethod(rule.method_code)) {
+        return {
+          matchedRows: 0,
+          totalMatchingSignals: 0,
+          alreadyProcessedSignals,
+          signals:
+            typeof options.limit === "number"
+              ? signals.slice(0, options.limit)
+              : signals,
+        };
+      }
+
+      const futureConfrontations =
+        await methodsService.getFutureConfrontationMethods(
+          rule.league_type as AlertLeagueType,
+          {
+            series: (rule.series as AlertSeriesCode | null) ?? undefined,
+            methodCode: rule.method_code,
+            days: rule.window_days,
+            apxMin: toNumber(rule.apx_min),
+            minOccurrences: rule.min_occurrences,
+          },
+        );
       let totalMatchingSignals = 0;
 
       for (const row of futureConfrontations.rows) {
@@ -1736,16 +2431,31 @@ export class AlertsService {
           continue;
         }
 
-        if (options.respectRuleCreatedAt && fixtureAt.getTime() < rule.created_at.getTime()) {
+        if (
+          options.respectRuleCreatedAt &&
+          fixtureAt.getTime() < rule.created_at.getTime()
+        ) {
           continue;
         }
 
         totalMatchingSignals += 1;
 
-        const baseSignal = buildFutureSignal(rule, row, futureConfrontations.currentWindow.dayKey, recipients);
-        const existingDispatch = existingDispatches.get(baseSignal.signalKey) ?? null;
-        const coveredByPendingFuture = pendingFutureConfrontationKeys.has(normalizePairKey(baseSignal.confrontationKey));
-        const alreadyProcessed = Boolean((existingDispatch && existingDispatch.transport_status !== "failed") || coveredByPendingFuture);
+        const baseSignal = buildFutureSignal(
+          rule,
+          row,
+          futureConfrontations.currentWindow.dayKey,
+          recipients,
+        );
+        const existingDispatch =
+          existingDispatches.get(baseSignal.signalKey) ?? null;
+        const coveredByPendingFuture = pendingFutureConfrontationKeys.has(
+          normalizePairKey(baseSignal.confrontationKey),
+        );
+        const alreadyProcessed = Boolean(
+          (existingDispatch &&
+            existingDispatch.transport_status !== "failed") ||
+          coveredByPendingFuture,
+        );
         if (alreadyProcessed) {
           alreadyProcessedSignals += 1;
           if (options.onlyDispatchable) {
@@ -1761,24 +2471,51 @@ export class AlertsService {
         });
       }
 
-      signals.sort((left, right) => new Date(left.occurrencePlayedAt).getTime() - new Date(right.occurrencePlayedAt).getTime());
+      signals.sort(
+        (left, right) =>
+          new Date(left.occurrencePlayedAt).getTime() -
+          new Date(right.occurrencePlayedAt).getTime(),
+      );
 
       return {
-        matchedRows: futureConfrontations.rows.filter((row) => matchesRulePlayerFilter(rule, row.playerName)).length,
+        matchedRows: futureConfrontations.rows.filter((row) =>
+          matchesRulePlayerFilter(rule, row.playerName),
+        ).length,
         totalMatchingSignals,
         alreadyProcessedSignals,
-        signals: typeof options.limit === "number" ? signals.slice(0, options.limit) : signals,
+        signals:
+          typeof options.limit === "number"
+            ? signals.slice(0, options.limit)
+            : signals,
       };
     }
 
-    const confrontationData = await getConfrontationMethodsLive(rule.league_type as AlertLeagueType, rule.method_code as AlertMethodCode, {
-      series: (rule.series as AlertSeriesCode | null) ?? undefined,
-      includeHistory: true,
-      days: rule.window_days,
-    });
+    if (!isAlertConfrontationMethod(rule.method_code)) {
+      return {
+        matchedRows: 0,
+        totalMatchingSignals: 0,
+        alreadyProcessedSignals,
+        signals:
+          typeof options.limit === "number"
+            ? signals.slice(0, options.limit)
+            : signals,
+      };
+    }
+
+    const confrontationData = await getConfrontationMethodsLive(
+      rule.league_type as AlertLeagueType,
+      rule.method_code,
+      {
+        series: (rule.series as AlertSeriesCode | null) ?? undefined,
+        includeHistory: true,
+        days: rule.window_days,
+      },
+    );
 
     const matchingRows = confrontationData.rows.filter((row) => {
-      const inferredPlayers = inferPlayersFromConfrontationLabel(row.confrontationLabel);
+      const inferredPlayers = inferPlayersFromConfrontationLabel(
+        row.confrontationLabel,
+      );
       return (
         row.apx >= toNumber(rule.apx_min) &&
         row.totalOccurrences >= rule.min_occurrences &&
@@ -1794,15 +2531,21 @@ export class AlertsService {
           continue;
         }
 
-        if (options.respectRuleCreatedAt && occurredAt.getTime() < rule.created_at.getTime()) {
+        if (
+          options.respectRuleCreatedAt &&
+          occurredAt.getTime() < rule.created_at.getTime()
+        ) {
           continue;
         }
 
         totalMatchingSignals += 1;
 
         const baseSignal = buildSignal(rule, row, occurrence, recipients);
-        const existingDispatch = existingDispatches.get(baseSignal.signalKey) ?? null;
-        const alreadyProcessed = Boolean(existingDispatch && existingDispatch.transport_status !== "failed");
+        const existingDispatch =
+          existingDispatches.get(baseSignal.signalKey) ?? null;
+        const alreadyProcessed = Boolean(
+          existingDispatch && existingDispatch.transport_status !== "failed",
+        );
         if (alreadyProcessed) {
           alreadyProcessedSignals += 1;
           if (options.onlyDispatchable) {
@@ -1819,18 +2562,27 @@ export class AlertsService {
       }
     }
 
-    signals.sort((left, right) => new Date(left.occurrencePlayedAt).getTime() - new Date(right.occurrencePlayedAt).getTime());
+    signals.sort(
+      (left, right) =>
+        new Date(left.occurrencePlayedAt).getTime() -
+        new Date(right.occurrencePlayedAt).getTime(),
+    );
 
     return {
       matchedRows: matchingRows.length,
       totalMatchingSignals,
       alreadyProcessedSignals,
-      signals: typeof options.limit === "number" ? signals.slice(0, options.limit) : signals,
+      signals:
+        typeof options.limit === "number"
+          ? signals.slice(0, options.limit)
+          : signals,
     };
   }
 
-  private async listRuleDispatchIndex(ruleId: bigint) {
-    const dispatches = await withAlertsPersistence(
+  private async listRuleDispatchIndex(
+    ruleId: bigint,
+  ): Promise<Map<string, AlertDispatchEntity>> {
+    const dispatches = await withAlertsPersistence<AlertDispatchEntity[]>(
       () =>
         prisma.alert_method_dispatches.findMany({
           where: { rule_id: ruleId },
@@ -1839,31 +2591,103 @@ export class AlertsService {
       () => listMemoryDispatches({ ruleId, limit: Number.MAX_SAFE_INTEGER }),
     );
 
-    return new Map(dispatches.map((dispatch) => [dispatch.signal_key, dispatch]));
+    return new Map<string, AlertDispatchEntity>(
+      dispatches.map((dispatch: AlertDispatchEntity) => [
+        dispatch.signal_key,
+        dispatch,
+      ]),
+    );
   }
 
-  private async listPendingFutureResultDispatches(ruleId?: bigint) {
+  private async listPendingFutureResultDispatches(
+    ruleId?: bigint,
+    options: {
+      excludeResolved?: boolean;
+      excludeCompletedFixtures?: boolean;
+      lookbackMs?: number;
+    } = {},
+  ): Promise<AlertDispatchEntity[]> {
     const now = new Date();
-    const dispatches = await withAlertsPersistence(
+    const lookbackMs =
+      typeof options.lookbackMs === "number" ? options.lookbackMs : null;
+    const hasLookback =
+      lookbackMs !== null && Number.isFinite(lookbackMs) && lookbackMs >= 0;
+    const lookbackCutoff = hasLookback
+      ? new Date(now.getTime() - lookbackMs)
+      : null;
+    const dispatches = await withAlertsPersistence<AlertDispatchEntity[]>(
       () =>
         prisma.alert_method_dispatches.findMany({
           where: {
             ...(ruleId ? { rule_id: ruleId } : {}),
-            occurrence_played_at: { lte: now },
+            occurrence_played_at: {
+              lte: now,
+              ...(lookbackCutoff ? { gte: lookbackCutoff } : {}),
+            },
             transport_status: { in: ["sent", "skipped"] },
           },
           orderBy: [{ occurrence_played_at: "asc" }, { created_at: "asc" }],
         }),
       () =>
         listMemoryDispatches({ ruleId, limit: Number.MAX_SAFE_INTEGER }).filter(
-          (dispatch) => dispatch.occurrence_played_at.getTime() <= now.getTime() && ["sent", "skipped"].includes(dispatch.transport_status),
+          (dispatch) => {
+            const occurredAtMs = dispatch.occurrence_played_at.getTime();
+
+            if (occurredAtMs > now.getTime()) {
+              return false;
+            }
+
+            if (lookbackCutoff && occurredAtMs < lookbackCutoff.getTime()) {
+              return false;
+            }
+
+            return ["sent", "skipped"].includes(dispatch.transport_status);
+          },
         ),
     );
 
-    return dispatches.filter((dispatch) => Boolean(extractPendingFutureSignal(parseStoredDispatchPayload(dispatch.payload_text))));
+    const dispatchIndex = options.excludeResolved
+      ? new Map<string, AlertDispatchEntity>(
+          dispatches.map((dispatch) => [dispatch.signal_key, dispatch]),
+        )
+      : null;
+    const pendingDispatches = [] as AlertDispatchEntity[];
+
+    for (const dispatch of dispatches) {
+      const pendingSignal = extractPendingFutureSignal(
+        parseStoredDispatchPayload(dispatch.payload_text),
+      );
+
+      if (!pendingSignal) {
+        continue;
+      }
+
+      if (
+        dispatchIndex?.has(buildResolvedFutureSignalKey(dispatch.signal_key))
+      ) {
+        continue;
+      }
+
+      if (options.excludeCompletedFixtures) {
+        const completedFixture = await findCompletedFutureFixtureById(
+          dispatch.occurrence_match_id,
+        );
+        if (completedFixture) {
+          continue;
+        }
+      }
+
+      pendingDispatches.push(dispatch);
+    }
+
+    return pendingDispatches;
   }
 
-  private async dispatchSignal(rule: AlertRuleEntity, signal: EvaluatedSignal, source: DispatchSource): Promise<DispatchOutcome> {
+  private async dispatchSignal(
+    rule: AlertRuleEntity,
+    signal: EvaluatedSignal,
+    source: DispatchSource,
+  ): Promise<DispatchOutcome> {
     const existingDispatch = await withAlertsPersistence(
       () =>
         prisma.alert_method_dispatches.findUnique({
@@ -1954,7 +2778,9 @@ export class AlertsService {
 
     const transportType = getRuleTransportType(rule);
     if (transportType === "telegram") {
-      const chatIds = signal.recipients.length ? signal.recipients : parseRecipients(env.TELEGRAM_DEFAULT_CHAT_IDS ?? "");
+      const chatIds = signal.recipients.length
+        ? signal.recipients
+        : parseRecipients(env.TELEGRAM_DEFAULT_CHAT_IDS ?? "");
       if (!chatIds.length) {
         const googleSheetsAttempt = await logGoogleSheetsDispatchBestEffort({
           loggedAt: new Date().toISOString(),
@@ -1972,7 +2798,10 @@ export class AlertsService {
         await persistDispatchResult(
           dispatchRecord.id,
           "skipped",
-          appendGoogleSheetsInfoToTransportResponse("Telegram sem chat_id configurado", googleSheetsAttempt),
+          appendGoogleSheetsInfoToTransportResponse(
+            "Telegram sem chat_id configurado",
+            googleSheetsAttempt,
+          ),
         );
         await this.persistLocalRulesStateIfVolatile();
 
@@ -1984,11 +2813,20 @@ export class AlertsService {
       }
 
       try {
-        const responseText = await sendTelegramMessage(chatIds, signal.message, {
-          editMessageIdByChatId: signal.telegramReplyTargets?.length
-            ? new Map(signal.telegramReplyTargets.map((item) => [item.chatId, item.messageId]))
-            : undefined,
-        });
+        const responseText = await sendTelegramMessage(
+          chatIds,
+          signal.message,
+          {
+            editMessageIdByChatId: signal.telegramReplyTargets?.length
+              ? new Map(
+                  signal.telegramReplyTargets.map((item) => [
+                    item.chatId,
+                    item.messageId,
+                  ]),
+                )
+              : undefined,
+          },
+        );
         const sentAt = new Date();
         const googleSheetsAttempt = await logGoogleSheetsDispatchBestEffort({
           loggedAt: new Date().toISOString(),
@@ -2006,7 +2844,10 @@ export class AlertsService {
         await persistDispatchResult(
           dispatchRecord.id,
           "sent",
-          appendGoogleSheetsInfoToTransportResponse(responseText, googleSheetsAttempt).slice(0, 20000),
+          appendGoogleSheetsInfoToTransportResponse(
+            responseText,
+            googleSheetsAttempt,
+          ).slice(0, 20000),
           sentAt,
         );
         await this.persistLocalRulesStateIfVolatile();
@@ -2017,7 +2858,8 @@ export class AlertsService {
           wasDispatched: true,
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Falha ao enviar Telegram";
+        const message =
+          error instanceof Error ? error.message : "Falha ao enviar Telegram";
         const googleSheetsAttempt = await logGoogleSheetsDispatchBestEffort({
           loggedAt: new Date().toISOString(),
           source,
@@ -2034,7 +2876,10 @@ export class AlertsService {
         await persistDispatchResult(
           dispatchRecord.id,
           "failed",
-          appendGoogleSheetsInfoToTransportResponse(message, googleSheetsAttempt),
+          appendGoogleSheetsInfoToTransportResponse(
+            message,
+            googleSheetsAttempt,
+          ),
         );
         await this.persistLocalRulesStateIfVolatile();
 
@@ -2048,7 +2893,11 @@ export class AlertsService {
 
     const webhookUrl = rule.webhook_url ?? env.ALERTS_WEBHOOK_URL;
     if (!webhookUrl) {
-      await persistDispatchResult(dispatchRecord.id, "skipped", "Webhook nao configurado");
+      await persistDispatchResult(
+        dispatchRecord.id,
+        "skipped",
+        "Webhook nao configurado",
+      );
       await this.persistLocalRulesStateIfVolatile();
 
       return {
@@ -2063,17 +2912,26 @@ export class AlertsService {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          ...(env.ALERTS_WEBHOOK_TOKEN ? { authorization: `Bearer ${env.ALERTS_WEBHOOK_TOKEN}` } : {}),
+          ...(env.ALERTS_WEBHOOK_TOKEN
+            ? { authorization: `Bearer ${env.ALERTS_WEBHOOK_TOKEN}` }
+            : {}),
         },
         body: JSON.stringify(payload),
       });
 
       const responseText = await response.text();
       if (!response.ok) {
-        throw new Error(`Webhook respondeu ${response.status}: ${responseText}`);
+        throw new Error(
+          `Webhook respondeu ${response.status}: ${responseText}`,
+        );
       }
 
-      await persistDispatchResult(dispatchRecord.id, "sent", responseText.slice(0, 20000), new Date());
+      await persistDispatchResult(
+        dispatchRecord.id,
+        "sent",
+        responseText.slice(0, 20000),
+        new Date(),
+      );
       await this.persistLocalRulesStateIfVolatile();
 
       return {
@@ -2082,7 +2940,8 @@ export class AlertsService {
         wasDispatched: true,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Falha ao enviar webhook";
+      const message =
+        error instanceof Error ? error.message : "Falha ao enviar webhook";
 
       await persistDispatchResult(dispatchRecord.id, "failed", message);
       await this.persistLocalRulesStateIfVolatile();
@@ -2096,7 +2955,11 @@ export class AlertsService {
   }
 }
 
-async function createDispatchRecord(ruleId: bigint, signal: EvaluatedSignal, payload: Record<string, unknown>) {
+async function createDispatchRecord(
+  ruleId: bigint,
+  signal: EvaluatedSignal,
+  payload: Record<string, unknown>,
+) {
   try {
     return await prisma.alert_method_dispatches.create({
       data: {
@@ -2115,7 +2978,10 @@ async function createDispatchRecord(ruleId: bigint, signal: EvaluatedSignal, pay
       },
     });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
       return prisma.alert_method_dispatches.findUniqueOrThrow({
         where: {
           rule_id_signal_key: {
@@ -2160,7 +3026,10 @@ async function readLocalLatestBackup(): Promise<AlertRulesBackup> {
 }
 
 function extractExportedAtFromFileName(fileName: string) {
-  const match = /^alerts-backup-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})\.json$/i.exec(fileName);
+  const match =
+    /^alerts-backup-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})\.json$/i.exec(
+      fileName,
+    );
   if (!match) {
     return null;
   }
@@ -2169,9 +3038,17 @@ function extractExportedAtFromFileName(fileName: string) {
   return `${year}-${month}-${day}T${hour}:${minute}:${second}.000Z`;
 }
 
-function buildSignal(rule: AlertRuleEntity, row: ConfrontationRow, occurrence: ConfrontationOccurrence, recipients: string[]): EvaluatedSignal {
+function buildSignal(
+  rule: AlertRuleEntity,
+  row: ConfrontationRow,
+  occurrence: ConfrontationOccurrence,
+  recipients: string[],
+): EvaluatedSignal {
   const triggerSequenceLabel = formatTriggerSequenceForAlert(rule, occurrence);
-  const daySequenceLabel = formatOccurrenceDaySequenceForAlert(rule, occurrence);
+  const daySequenceLabel = formatOccurrenceDaySequenceForAlert(
+    rule,
+    occurrence,
+  );
   const signalKey = `${row.confrontationKey}::${occurrence.matchId}`;
 
   return {
@@ -2257,7 +3134,7 @@ function buildFutureSignal(
       `<b>WR oponente (${rule.window_days}d):</b> ${row.opponentWinRate}%`,
       `<b>H2H (48j):</b> ${row.h2hLast48.wr}% (${row.h2hLast48.total}j: ${row.h2hLast48.wins}W)`,
       `<b>H2H (24j):</b> ${row.h2hLast24.wr}% (${row.h2hLast24.total}j: ${row.h2hLast24.wins}W)`,
-      `<b>Delta H2H:</b> ${(row.h2hLast48.wr - row.h2hLast24.wr) >= 0 ? "+" : ""}${(row.h2hLast48.wr - row.h2hLast24.wr).toFixed(1)}pp`,
+      `<b>Delta H2H:</b> ${row.h2hLast48.wr - row.h2hLast24.wr >= 0 ? "+" : ""}${(row.h2hLast48.wr - row.h2hLast24.wr).toFixed(1)}pp`,
       `<b>Janela:</b> ultimos ${rule.window_days} dias`,
     ].join("\n"),
   };
@@ -2315,7 +3192,7 @@ function buildFuturePlayerSessionSignal(
       `<b>WR oponente (${rule.window_days}d):</b> ${row.opponentWinRate}%`,
       `<b>H2H (48j):</b> ${row.h2hLast48.wr}% (${row.h2hLast48.total}j: ${row.h2hLast48.wins}W)`,
       `<b>H2H (24j):</b> ${row.h2hLast24.wr}% (${row.h2hLast24.total}j: ${row.h2hLast24.wins}W)`,
-      `<b>Delta H2H:</b> ${(row.h2hLast48.wr - row.h2hLast24.wr) >= 0 ? "+" : ""}${(row.h2hLast48.wr - row.h2hLast24.wr).toFixed(1)}pp`,
+      `<b>Delta H2H:</b> ${row.h2hLast48.wr - row.h2hLast24.wr >= 0 ? "+" : ""}${(row.h2hLast48.wr - row.h2hLast24.wr).toFixed(1)}pp`,
       `<b>Janela:</b> ultimos ${rule.window_days} dias`,
     ].join("\n"),
   };
@@ -2328,15 +3205,32 @@ function buildFutureResolvedSignal(
   payload: StoredDispatchPayload | null,
   completedFixture: CompletedFutureFixture,
 ): EvaluatedSignal {
-  const inferredPlayers = inferPlayersFromConfrontationLabel(dispatch.confrontation_label);
-  const playerName = storedSignal.playerName ?? inferredPlayers.playerName ?? completedFixture.homePlayer;
-  const resolvedStats = calculateResolvedApx(storedSignal, getCompletedFixtureResultForPlayer(completedFixture, playerName));
-  const opponentName = storedSignal.opponentName ?? inferredPlayers.opponentName ?? completedFixture.awayPlayer;
-  const recipients = Array.isArray(payload?.recipients) && payload.recipients.length
-    ? payload.recipients.map((item) => item.trim()).filter(Boolean)
-    : parseRecipients(dispatch.recipients_snapshot);
-  const result = getCompletedFixtureResultForPlayer(completedFixture, playerName);
-  const scheduledLabel = storedSignal.localPlayedAtLabel ?? dispatch.occurrence_played_at.toLocaleString("pt-BR");
+  const inferredPlayers = inferPlayersFromConfrontationLabel(
+    dispatch.confrontation_label,
+  );
+  const playerName =
+    storedSignal.playerName ??
+    inferredPlayers.playerName ??
+    completedFixture.homePlayer;
+  const resolvedStats = calculateResolvedApx(
+    storedSignal,
+    getCompletedFixtureResultForPlayer(completedFixture, playerName),
+  );
+  const opponentName =
+    storedSignal.opponentName ??
+    inferredPlayers.opponentName ??
+    completedFixture.awayPlayer;
+  const recipients =
+    Array.isArray(payload?.recipients) && payload.recipients.length
+      ? payload.recipients.map((item) => item.trim()).filter(Boolean)
+      : parseRecipients(dispatch.recipients_snapshot);
+  const result = getCompletedFixtureResultForPlayer(
+    completedFixture,
+    playerName,
+  );
+  const scheduledLabel =
+    storedSignal.localPlayedAtLabel ??
+    dispatch.occurrence_played_at.toLocaleString("pt-BR");
   const telegramReplyTargets = extractTelegramReplyTargets(dispatch);
 
   if (storedSignal.sourceView === "future-player-sessions") {
@@ -2457,11 +3351,17 @@ function formatSequenceForAlert(rule: AlertRuleEntity, sequence: string[]) {
     .join(" ");
 }
 
-function formatTriggerSequenceForAlert(rule: AlertRuleEntity, occurrence: ConfrontationOccurrence) {
+function formatTriggerSequenceForAlert(
+  rule: AlertRuleEntity,
+  occurrence: ConfrontationOccurrence,
+) {
   return formatSequenceForAlert(rule, occurrence.triggerSequence);
 }
 
-function formatOccurrenceDaySequenceForAlert(rule: AlertRuleEntity, occurrence: ConfrontationOccurrence) {
+function formatOccurrenceDaySequenceForAlert(
+  rule: AlertRuleEntity,
+  occurrence: ConfrontationOccurrence,
+) {
   return formatSequenceForAlert(rule, occurrence.daySequence);
 }
 
@@ -2503,7 +3403,9 @@ function signalToEvaluatedSignal(signal: SignalPreviewItem): EvaluatedSignal {
   };
 }
 
-function parseStoredDispatchPayload(payloadText: string): StoredDispatchPayload | null {
+function parseStoredDispatchPayload(
+  payloadText: string,
+): StoredDispatchPayload | null {
   try {
     const parsed = JSON.parse(payloadText) as StoredDispatchPayload;
     return parsed && typeof parsed === "object" ? parsed : null;
@@ -2514,7 +3416,11 @@ function parseStoredDispatchPayload(payloadText: string): StoredDispatchPayload 
 
 function extractPendingFutureSignal(payload: StoredDispatchPayload | null) {
   const signal = payload?.signal;
-  if (!signal || (signal.sourceView !== "future-confrontations" && signal.sourceView !== "future-player-sessions")) {
+  if (
+    !signal ||
+    (signal.sourceView !== "future-confrontations" &&
+      signal.sourceView !== "future-player-sessions")
+  ) {
     return null;
   }
 
@@ -2549,21 +3455,27 @@ function normalizePairKey(confrontationKey: string): string {
   if (confrontationKey.startsWith("FAV::")) {
     const parts = confrontationKey.slice(5).split("::");
     return parts.length >= 2
-      ? [...parts].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" })).join("||")
+      ? [...parts]
+          .sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }))
+          .join("||")
       : confrontationKey;
   }
   if (confrontationKey.startsWith("PLAYER::")) {
-    return confrontationKey;               // single-player key, already unique
+    return confrontationKey; // single-player key, already unique
   }
   const parts = confrontationKey.split("||");
   if (parts.length === 2) {
-    return [...parts].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" })).join("||");
+    return [...parts]
+      .sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }))
+      .join("||");
   }
   return confrontationKey;
 }
 
 function inferPlayersFromConfrontationLabel(confrontationLabel: string) {
-  const [playerName, opponentName] = confrontationLabel.split(/\sx\s/i).map((item) => item.trim());
+  const [playerName, opponentName] = confrontationLabel
+    .split(/\sx\s/i)
+    .map((item) => item.trim());
 
   return {
     playerName: playerName || null,
@@ -2571,10 +3483,16 @@ function inferPlayersFromConfrontationLabel(confrontationLabel: string) {
   };
 }
 
-function deriveManualOutcomeCounts(initialApx: number, totalOccurrences: number) {
+function deriveManualOutcomeCounts(
+  initialApx: number,
+  totalOccurrences: number,
+) {
   const safeTotal = Math.max(1, totalOccurrences);
   const boundedApx = Math.min(100, Math.max(0, initialApx));
-  const wins = Math.min(safeTotal, Math.max(0, Math.round((boundedApx / 100) * safeTotal)));
+  const wins = Math.min(
+    safeTotal,
+    Math.max(0, Math.round((boundedApx / 100) * safeTotal)),
+  );
 
   return {
     wins,
@@ -2599,7 +3517,10 @@ function parseManualScore(score: string | undefined) {
   };
 }
 
-function normalizeManualScoreForResult(result: "W" | "D" | "L", score: { homeScore: number; awayScore: number } | null) {
+function normalizeManualScoreForResult(
+  result: "W" | "D" | "L",
+  score: { homeScore: number; awayScore: number } | null,
+) {
   if (score) {
     if (result === "W" && score.homeScore > score.awayScore) {
       return score;
@@ -2630,10 +3551,17 @@ function buildManualCompletedFixture(
   storedSignal: NonNullable<StoredDispatchPayload["signal"]>,
   input: { result: "W" | "D" | "L"; fullTimeScore?: string; resolvedAt: Date },
 ): CompletedFutureFixture {
-  const inferredPlayers = inferPlayersFromConfrontationLabel(dispatch.confrontation_label);
-  const homePlayer = storedSignal.playerName ?? inferredPlayers.playerName ?? "Teste Futuro";
-  const awayPlayer = storedSignal.opponentName ?? inferredPlayers.opponentName ?? "Alertas";
-  const normalizedScore = normalizeManualScoreForResult(input.result, parseManualScore(input.fullTimeScore));
+  const inferredPlayers = inferPlayersFromConfrontationLabel(
+    dispatch.confrontation_label,
+  );
+  const homePlayer =
+    storedSignal.playerName ?? inferredPlayers.playerName ?? "Teste Futuro";
+  const awayPlayer =
+    storedSignal.opponentName ?? inferredPlayers.opponentName ?? "Alertas";
+  const normalizedScore = normalizeManualScoreForResult(
+    input.result,
+    parseManualScore(input.fullTimeScore),
+  );
 
   return {
     fixtureId: `${dispatch.signal_key}::manual-result`,
@@ -2648,7 +3576,10 @@ function buildManualCompletedFixture(
   };
 }
 
-function getCompletedFixtureResultForPlayer(fixture: CompletedFutureFixture, playerName: string) {
+function getCompletedFixtureResultForPlayer(
+  fixture: CompletedFutureFixture,
+  playerName: string,
+) {
   if (fixture.homeScore === fixture.awayScore) {
     return "D";
   }
@@ -2668,7 +3599,9 @@ function getCompletedFixtureResultForPlayer(fixture: CompletedFutureFixture, pla
   return fixture.homeScore > fixture.awayScore ? "W" : "L";
 }
 
-function mapRuleCreateInput(input: AlertRuleInput): Prisma.alert_method_rulesCreateInput {
+function mapRuleCreateInput(
+  input: AlertRuleInput,
+): Prisma.alert_method_rulesCreateInput {
   return {
     name: input.name,
     is_active: input.isActive ?? true,
@@ -2686,21 +3619,43 @@ function mapRuleCreateInput(input: AlertRuleInput): Prisma.alert_method_rulesCre
   } as Prisma.alert_method_rulesCreateInput;
 }
 
-function mapRuleUpdateInput(input: AlertRuleUpdateInput): Prisma.alert_method_rulesUpdateInput {
+function mapRuleUpdateInput(
+  input: AlertRuleUpdateInput,
+): Prisma.alert_method_rulesUpdateInput {
   return {
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.isActive !== undefined ? { is_active: input.isActive } : {}),
-    ...(input.transportType !== undefined ? { transport_channel: input.transportType } : {}),
-    ...(input.leagueType !== undefined ? { league_type: input.leagueType } : {}),
-    ...(input.methodCode !== undefined ? { method_code: input.methodCode } : {}),
+    ...(input.transportType !== undefined
+      ? { transport_channel: input.transportType }
+      : {}),
+    ...(input.leagueType !== undefined
+      ? { league_type: input.leagueType }
+      : {}),
+    ...(input.methodCode !== undefined
+      ? { method_code: input.methodCode }
+      : {}),
     ...(input.series !== undefined ? { series: input.series ?? null } : {}),
-    ...(input.playerName !== undefined ? { player_name: normalizeOptionalString(input.playerName) } : {}),
-    ...(input.apxMin !== undefined ? { apx_min: new Prisma.Decimal(input.apxMin) } : {}),
-    ...(input.minOccurrences !== undefined ? { min_occurrences: input.minOccurrences } : {}),
-    ...(input.windowDays !== undefined ? { window_days: input.windowDays } : {}),
-    ...(input.recipients !== undefined ? { recipients: serializeRecipients(input.recipients) } : {}),
-    ...(input.webhookUrl !== undefined ? { webhook_url: normalizeOptionalString(input.webhookUrl) } : {}),
-    ...(input.note !== undefined ? { note: normalizeOptionalString(input.note) } : {}),
+    ...(input.playerName !== undefined
+      ? { player_name: normalizeOptionalString(input.playerName) }
+      : {}),
+    ...(input.apxMin !== undefined
+      ? { apx_min: new Prisma.Decimal(input.apxMin) }
+      : {}),
+    ...(input.minOccurrences !== undefined
+      ? { min_occurrences: input.minOccurrences }
+      : {}),
+    ...(input.windowDays !== undefined
+      ? { window_days: input.windowDays }
+      : {}),
+    ...(input.recipients !== undefined
+      ? { recipients: serializeRecipients(input.recipients) }
+      : {}),
+    ...(input.webhookUrl !== undefined
+      ? { webhook_url: normalizeOptionalString(input.webhookUrl) }
+      : {}),
+    ...(input.note !== undefined
+      ? { note: normalizeOptionalString(input.note) }
+      : {}),
   } as Prisma.alert_method_rulesUpdateInput;
 }
 
@@ -2713,7 +3668,9 @@ function serializeRule(rule: AlertRuleEntity) {
     leagueType: rule.league_type,
     methodCode: rule.method_code,
     series: rule.series,
-    playerName: (rule as AlertRuleEntity & { player_name?: string | null }).player_name ?? null,
+    playerName:
+      (rule as AlertRuleEntity & { player_name?: string | null }).player_name ??
+      null,
     apxMin: toNumber(rule.apx_min),
     minOccurrences: rule.min_occurrences,
     windowDays: rule.window_days,
@@ -2727,7 +3684,9 @@ function serializeRule(rule: AlertRuleEntity) {
 }
 
 function serializeDispatch(
-  dispatch: AlertDispatchEntity & { rule?: { name: string; method_code: string; league_type: string } | null },
+  dispatch: AlertDispatchEntity & {
+    rule?: { name: string; method_code: string; league_type: string } | null;
+  },
 ) {
   const payload = parseStoredDispatchPayload(dispatch.payload_text);
 
@@ -2746,7 +3705,9 @@ function serializeDispatch(
     apx: toNumber(dispatch.apx),
     totalOccurrences: dispatch.total_occurrences,
     recipients: parseRecipients(dispatch.recipients_snapshot),
-    eventType: payload?.eventType ?? inferDispatchEventTypeFromSignalKey(dispatch.signal_key),
+    eventType:
+      payload?.eventType ??
+      inferDispatchEventTypeFromSignalKey(dispatch.signal_key),
     payloadText: dispatch.payload_text,
     transportStatus: dispatch.transport_status,
     transportResponse: dispatch.transport_response,
@@ -2756,12 +3717,18 @@ function serializeDispatch(
   };
 }
 
-function getDispatchEventTypeFromSignal(signal: Pick<EvaluatedSignal, "signalKey">): DispatchEventType {
+function getDispatchEventTypeFromSignal(
+  signal: Pick<EvaluatedSignal, "signalKey">,
+): DispatchEventType {
   return inferDispatchEventTypeFromSignalKey(signal.signalKey);
 }
 
-function inferDispatchEventTypeFromSignalKey(signalKey: string): DispatchEventType {
-  return signalKey.endsWith("::resolved") ? "result_followup" : "initial_signal";
+function inferDispatchEventTypeFromSignalKey(
+  signalKey: string,
+): DispatchEventType {
+  return signalKey.endsWith("::resolved")
+    ? "result_followup"
+    : "initial_signal";
 }
 
 function parseRecipients(value: string) {
@@ -2772,7 +3739,10 @@ function parseRecipients(value: string) {
 }
 
 function serializeRecipients(recipients: string[]) {
-  return recipients.map((item) => item.trim()).filter(Boolean).join(", ");
+  return recipients
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join(", ");
 }
 
 function normalizeOptionalString(value: string | null | undefined) {
@@ -2784,12 +3754,32 @@ function normalizeConfrontationKey(label: string) {
   return label
     .split(" x ")
     .map((item) => item.trim().toLowerCase())
-    .sort((left, right) => left.localeCompare(right, "pt-BR", { sensitivity: "base" }))
+    .sort((left, right) =>
+      left.localeCompare(right, "pt-BR", { sensitivity: "base" }),
+    )
     .join("||");
 }
 
 function normalizeNameKey(value: string) {
   return value.trim().toLowerCase();
+}
+
+function isAlertConfrontationMethod(
+  value: string,
+): value is AlertConfrontationMethodCode {
+  return ALERT_CONFRONTATION_METHOD_CODE_SET.has(value);
+}
+
+function isAlertFavoritoVsFracoMethod(
+  value: string,
+): value is AlertFavoritoVsFracoMethodCode {
+  return ALERT_FAVORITO_VS_FRACO_METHOD_CODE_SET.has(value);
+}
+
+function isAlertPlayerSessionMethod(
+  value: string,
+): value is AlertPlayerSessionMethodCode {
+  return ALERT_PLAYER_SESSION_METHOD_CODE_SET.has(value);
 }
 
 function formatPercentage(value: number) {
@@ -2827,14 +3817,39 @@ function buildMemoryDispatchRule(ruleId: bigint) {
 }
 
 function isAlertsTablesUnavailableError(error: unknown) {
+  if (error instanceof TypeError) {
+    const message = error.message.toLowerCase();
+    if (
+      message.includes("cannot read properties of undefined") &&
+      (message.includes("findfirst") ||
+        message.includes("findmany") ||
+        message.includes("create") ||
+        message.includes("update") ||
+        message.includes("delete") ||
+        message.includes("upsert") ||
+        message.includes("count"))
+    ) {
+      return true;
+    }
+  }
+
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    if (error.code === "P2021" && ["alert_method_rules", "alert_method_dispatches"].includes(String(error.meta?.table ?? ""))) {
+    if (
+      error.code === "P2021" &&
+      ["alert_method_rules", "alert_method_dispatches"].includes(
+        String(error.meta?.table ?? ""),
+      )
+    ) {
       return true;
     }
 
     if (error.code === "P2022") {
       const column = String(error.meta?.column ?? "").toLowerCase();
-      if (column.includes("player_name") || column.includes("alert_method_rules") || column.includes("alert_method_dispatches")) {
+      if (
+        column.includes("player_name") ||
+        column.includes("alert_method_rules") ||
+        column.includes("alert_method_dispatches")
+      ) {
         return true;
       }
     }
@@ -2846,7 +3861,9 @@ function isAlertsTablesUnavailableError(error: unknown) {
 
   if (error instanceof Prisma.PrismaClientInitializationError) {
     const message = error.message.toLowerCase();
-    const touchesAlertsTables = message.includes("alert_method_rules") || message.includes("alert_method_dispatches");
+    const touchesAlertsTables =
+      message.includes("alert_method_rules") ||
+      message.includes("alert_method_dispatches");
     const isConnectivityIssue =
       message.includes("can't reach database server") ||
       message.includes("connect timeout") ||
@@ -2858,9 +3875,14 @@ function isAlertsTablesUnavailableError(error: unknown) {
     return touchesAlertsTables && isConnectivityIssue;
   }
 
-  if (error instanceof Prisma.PrismaClientUnknownRequestError || error instanceof Error) {
+  if (
+    error instanceof Prisma.PrismaClientUnknownRequestError ||
+    error instanceof Error
+  ) {
     const message = error.message.toLowerCase();
-    const touchesAlertsTables = message.includes("alert_method_rules") || message.includes("alert_method_dispatches");
+    const touchesAlertsTables =
+      message.includes("alert_method_rules") ||
+      message.includes("alert_method_dispatches");
     const isPermissionOrMissingTableIssue =
       message.includes("the url must start with the protocol") ||
       message.includes("command denied") ||
@@ -2878,13 +3900,19 @@ function isAlertsTablesUnavailableError(error: unknown) {
       message.includes("connection closed") ||
       message.includes("connection refused");
 
-    return touchesAlertsTables && (isPermissionOrMissingTableIssue || isConnectivityIssue);
+    return (
+      touchesAlertsTables &&
+      (isPermissionOrMissingTableIssue || isConnectivityIssue)
+    );
   }
 
   return false;
 }
 
-async function withAlertsPersistence<T>(prismaOperation: () => Promise<T>, fallbackOperation: () => T | Promise<T>) {
+async function withAlertsPersistence<T>(
+  prismaOperation: () => Promise<T>,
+  fallbackOperation: () => T | Promise<T>,
+) {
   try {
     const result = await prismaOperation();
     alertsPersistenceMode = "database";
@@ -2892,10 +3920,7 @@ async function withAlertsPersistence<T>(prismaOperation: () => Promise<T>, fallb
   } catch (error) {
     if (isAlertsTablesUnavailableError(error)) {
       alertsPersistenceMode = "memory";
-      const fallback = await fallbackOperation();
-      // Garante array vazio se fallback for undefined/null
-      if (fallback === undefined || fallback === null) return [] as any;
-      return fallback;
+      return await fallbackOperation();
     }
     throw error;
   }
@@ -2931,14 +3956,23 @@ function buildRuleSignature(rule: AlertRuleInput) {
     apxMin: Number(rule.apxMin ?? 0),
     minOccurrences: rule.minOccurrences ?? 1,
     windowDays: rule.windowDays ?? 30,
-    recipients: [...rule.recipients].map((item) => item.trim()).filter(Boolean).sort(),
+    recipients: [...rule.recipients]
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .sort(),
     webhookUrl: normalizeOptionalString(rule.webhookUrl),
     note: normalizeOptionalString(rule.note),
   });
 }
 
-function matchesRulePlayerFilter(rule: AlertRuleEntity, playerName: string | null | undefined) {
-  const configuredPlayer = normalizePlayerName((rule as AlertRuleEntity & { player_name?: string | null }).player_name ?? null);
+function matchesRulePlayerFilter(
+  rule: AlertRuleEntity,
+  playerName: string | null | undefined,
+) {
+  const configuredPlayer = normalizePlayerName(
+    (rule as AlertRuleEntity & { player_name?: string | null }).player_name ??
+      null,
+  );
   if (!configuredPlayer) {
     return true;
   }
@@ -2950,13 +3984,31 @@ function normalizePlayerName(value: string | null | undefined) {
   return value?.trim().replace(/\s+/gu, " ").toUpperCase() ?? "";
 }
 
+function isOpenSignalInCurrentRange(occurrencePlayedAt: string, nowMs: number) {
+  const occurrenceAtMs = new Date(occurrencePlayedAt).getTime();
+  if (Number.isNaN(occurrenceAtMs)) {
+    return false;
+  }
+
+  return (
+    occurrenceAtMs >= nowMs - OPEN_SIGNAL_LOOKBACK_MS &&
+    occurrenceAtMs <= nowMs + OPEN_SIGNAL_LOOKAHEAD_MS
+  );
+}
+
 function getRuleTransportType(rule: AlertRuleEntity): AlertTransportType {
-  return ((rule as AlertRuleEntity & { transport_channel?: string }).transport_channel ?? "webhook") === "telegram"
+  return ((rule as AlertRuleEntity & { transport_channel?: string })
+    .transport_channel ?? "webhook") === "telegram"
     ? "telegram"
     : "webhook";
 }
 
-async function persistDispatchResult(dispatchId: bigint, status: string, responseText: string | null, sentAt?: Date) {
+async function persistDispatchResult(
+  dispatchId: bigint,
+  status: string,
+  responseText: string | null,
+  sentAt?: Date,
+) {
   await withAlertsPersistence(
     () =>
       prisma.alert_method_dispatches.update({
@@ -2977,7 +4029,70 @@ async function persistDispatchResult(dispatchId: bigint, status: string, respons
 }
 
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+type TelegramApiResponsePayload = {
+  ok?: boolean;
+  description?: string;
+  parameters?: {
+    migrate_to_chat_id?: number | string;
+  };
+  result?: {
+    message_id?: number;
+  };
+};
+
+type TelegramRequestResult = {
+  ok: boolean;
+  status: number;
+  text: string;
+  migratedChatId: string | null;
+};
+
+function extractMigratedTelegramChatId(responseText: string) {
+  try {
+    const payload = JSON.parse(responseText) as TelegramApiResponsePayload;
+    const migratedChatId = payload.parameters?.migrate_to_chat_id;
+    if (
+      typeof migratedChatId === "number" ||
+      typeof migratedChatId === "string"
+    ) {
+      return String(migratedChatId);
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function postTelegramApi(
+  method: "sendMessage" | "editMessageText",
+  botToken: string,
+  body: Record<string, unknown>,
+): Promise<TelegramRequestResult> {
+  const response = await fetch(
+    `https://api.telegram.org/bot${botToken}/${method}`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  const responseText = await response.text();
+  return {
+    ok: response.ok,
+    status: response.status,
+    text: responseText,
+    migratedChatId: extractMigratedTelegramChatId(responseText),
+  };
 }
 
 async function sendTelegramMessage(
@@ -2992,54 +4107,80 @@ async function sendTelegramMessage(
 
   const responses = [] as string[];
   for (const chatId of chatIds) {
+    let targetChatId = chatId;
     const messageIdToEdit = options?.editMessageIdByChatId?.get(chatId);
     if (typeof messageIdToEdit === "number") {
-      const editResponse = await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          chat_id: chatId,
+      let editResponse = await postTelegramApi("editMessageText", botToken, {
+        chat_id: targetChatId,
+        message_id: messageIdToEdit,
+        text: message,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
+
+      if (
+        !editResponse.ok &&
+        editResponse.migratedChatId &&
+        editResponse.migratedChatId !== targetChatId
+      ) {
+        responses.push(
+          `[telegram] chat ${targetChatId} migrado para ${editResponse.migratedChatId}`,
+        );
+        targetChatId = editResponse.migratedChatId;
+        editResponse = await postTelegramApi("editMessageText", botToken, {
+          chat_id: targetChatId,
           message_id: messageIdToEdit,
           text: message,
           parse_mode: "HTML",
           disable_web_page_preview: true,
-        }),
-      });
+        });
+      }
 
-      const editResponseText = await editResponse.text();
       if (editResponse.ok) {
-        responses.push(`chat ${chatId} [edited ${messageIdToEdit}]: ${editResponseText}`);
+        responses.push(`chat ${targetChatId}: ${editResponse.text}`);
         continue;
       }
     }
 
-    const sendResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
+    let sendResponse = await postTelegramApi("sendMessage", botToken, {
+      chat_id: targetChatId,
+      text: message,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+
+    if (
+      !sendResponse.ok &&
+      sendResponse.migratedChatId &&
+      sendResponse.migratedChatId !== targetChatId
+    ) {
+      responses.push(
+        `[telegram] chat ${targetChatId} migrado para ${sendResponse.migratedChatId}`,
+      );
+      targetChatId = sendResponse.migratedChatId;
+      sendResponse = await postTelegramApi("sendMessage", botToken, {
+        chat_id: targetChatId,
         text: message,
         parse_mode: "HTML",
         disable_web_page_preview: true,
-      }),
-    });
-
-    const sendResponseText = await sendResponse.text();
-    if (!sendResponse.ok) {
-      throw new Error(`Telegram respondeu ${sendResponse.status}: ${sendResponseText}`);
+      });
     }
 
-    responses.push(`chat ${chatId}: ${sendResponseText}`);
+    if (!sendResponse.ok) {
+      throw new Error(
+        `Telegram respondeu ${sendResponse.status} para chat ${targetChatId}: ${sendResponse.text}`,
+      );
+    }
+
+    responses.push(`chat ${targetChatId}: ${sendResponse.text}`);
   }
 
   return responses.join("\n");
 }
 
-async function findCompletedFutureFixtureById(fixtureId: string): Promise<CompletedFutureFixture | null> {
+async function findCompletedFutureFixtureById(
+  fixtureId: string,
+): Promise<CompletedFutureFixture | null> {
   const [prefix, rawId] = fixtureId.split("-");
   const numericId = Number(rawId);
   if (!prefix || !rawId || !Number.isFinite(numericId)) {
@@ -3060,7 +4201,11 @@ async function findCompletedFutureFixtureById(fixtureId: string): Promise<Comple
         away_score_ft: true,
       },
     });
-    if (!match || match.home_score_ft === null || match.away_score_ft === null) {
+    if (
+      !match ||
+      match.home_score_ft === null ||
+      match.away_score_ft === null
+    ) {
       return null;
     }
 
@@ -3069,8 +4214,12 @@ async function findCompletedFutureFixtureById(fixtureId: string): Promise<Comple
       playedAtIso: match.match_kickoff.toISOString(),
       localPlayedAtLabel: match.match_kickoff.toLocaleString("pt-BR"),
       fixtureLabel: `${normalizeFixturePlayerName(match.home_player || match.home_team)} x ${normalizeFixturePlayerName(match.away_player || match.away_team)}`,
-      homePlayer: normalizeFixturePlayerName(match.home_player || match.home_team),
-      awayPlayer: normalizeFixturePlayerName(match.away_player || match.away_team),
+      homePlayer: normalizeFixturePlayerName(
+        match.home_player || match.home_team,
+      ),
+      awayPlayer: normalizeFixturePlayerName(
+        match.away_player || match.away_team,
+      ),
       homeScore: Number(match.home_score_ft),
       awayScore: Number(match.away_score_ft),
       fullTimeScore: `${Number(match.home_score_ft)}x${Number(match.away_score_ft)}`,
@@ -3091,7 +4240,11 @@ async function findCompletedFutureFixtureById(fixtureId: string): Promise<Comple
         away_score_ft: true,
       },
     });
-    if (!match || match.home_score_ft === null || match.away_score_ft === null) {
+    if (
+      !match ||
+      match.home_score_ft === null ||
+      match.away_score_ft === null
+    ) {
       return null;
     }
 
@@ -3100,8 +4253,12 @@ async function findCompletedFutureFixtureById(fixtureId: string): Promise<Comple
       playedAtIso: match.match_kickoff.toISOString(),
       localPlayedAtLabel: match.match_kickoff.toLocaleString("pt-BR"),
       fixtureLabel: `${normalizeFixturePlayerName(match.home_player || match.home_team)} x ${normalizeFixturePlayerName(match.away_player || match.away_team)}`,
-      homePlayer: normalizeFixturePlayerName(match.home_player || match.home_team),
-      awayPlayer: normalizeFixturePlayerName(match.away_player || match.away_team),
+      homePlayer: normalizeFixturePlayerName(
+        match.home_player || match.home_team,
+      ),
+      awayPlayer: normalizeFixturePlayerName(
+        match.away_player || match.away_team,
+      ),
       homeScore: Number(match.home_score_ft),
       awayScore: Number(match.away_score_ft),
       fullTimeScore: `${Number(match.home_score_ft)}x${Number(match.away_score_ft)}`,
@@ -3115,7 +4272,9 @@ function normalizeFixturePlayerName(value: string | null | undefined) {
   return (value ?? "").trim().replace(/\s+/g, " ") || "-";
 }
 
-function buildGoogleSheetsSignal(signal: EvaluatedSignal): GoogleSheetsDispatchLogPayload["signal"] {
+function buildGoogleSheetsSignal(
+  signal: EvaluatedSignal,
+): GoogleSheetsDispatchLogPayload["signal"] {
   return {
     signalKey: signal.signalKey,
     rootSignalKey: signal.rootSignalKey,
@@ -3149,27 +4308,38 @@ function buildGoogleSheetsSignal(signal: EvaluatedSignal): GoogleSheetsDispatchL
   };
 }
 
-function calculateResolvedApx(storedSignal: NonNullable<StoredDispatchPayload["signal"]>, result: string) {
-  const initialApx = typeof storedSignal.initialApx === "number"
-    ? storedSignal.initialApx
-    : typeof storedSignal.apx === "number"
-      ? storedSignal.apx
-      : 0;
-  const initialTotalOccurrences = typeof storedSignal.initialTotalOccurrences === "number"
-    ? storedSignal.initialTotalOccurrences
-    : typeof storedSignal.totalOccurrences === "number"
-      ? storedSignal.totalOccurrences
-      : 0;
-  const wins = typeof storedSignal.wins === "number"
-    ? storedSignal.wins
-    : Math.round((initialApx / 100) * initialTotalOccurrences);
+function calculateResolvedApx(
+  storedSignal: NonNullable<StoredDispatchPayload["signal"]>,
+  result: string,
+) {
+  const initialApx =
+    typeof storedSignal.initialApx === "number"
+      ? storedSignal.initialApx
+      : typeof storedSignal.apx === "number"
+        ? storedSignal.apx
+        : 0;
+  const initialTotalOccurrences =
+    typeof storedSignal.initialTotalOccurrences === "number"
+      ? storedSignal.initialTotalOccurrences
+      : typeof storedSignal.totalOccurrences === "number"
+        ? storedSignal.totalOccurrences
+        : 0;
+  const wins =
+    typeof storedSignal.wins === "number"
+      ? storedSignal.wins
+      : Math.round((initialApx / 100) * initialTotalOccurrences);
   const draws = typeof storedSignal.draws === "number" ? storedSignal.draws : 0;
-  const losses = typeof storedSignal.losses === "number" ? storedSignal.losses : Math.max(0, initialTotalOccurrences - wins - draws);
+  const losses =
+    typeof storedSignal.losses === "number"
+      ? storedSignal.losses
+      : Math.max(0, initialTotalOccurrences - wins - draws);
   const currentTotalOccurrences = initialTotalOccurrences + 1;
   const currentWins = wins + (result === "W" ? 1 : 0);
   const currentDraws = draws + (result === "D" ? 1 : 0);
   const currentLosses = losses + (result === "L" ? 1 : 0);
-  const currentApx = currentTotalOccurrences ? Number(((currentWins / currentTotalOccurrences) * 100).toFixed(2)) : 0;
+  const currentApx = currentTotalOccurrences
+    ? Number(((currentWins / currentTotalOccurrences) * 100).toFixed(2))
+    : 0;
 
   return {
     initialApx,
@@ -3197,7 +4367,9 @@ function extractTelegramReplyTargets(dispatch: AlertDispatchEntity | null) {
     }
 
     try {
-      const payload = JSON.parse(match[2]) as { result?: { message_id?: number } };
+      const payload = JSON.parse(match[2]) as {
+        result?: { message_id?: number };
+      };
       const messageId = payload.result?.message_id;
       if (typeof messageId === "number") {
         targets.push({ chatId: match[1], messageId });
@@ -3210,12 +4382,17 @@ function extractTelegramReplyTargets(dispatch: AlertDispatchEntity | null) {
   return targets;
 }
 
-function appendGoogleSheetsInfoToTransportResponse(baseResponse: string | null, attempt: GoogleSheetsDispatchAttempt) {
+function appendGoogleSheetsInfoToTransportResponse(
+  baseResponse: string | null,
+  attempt: GoogleSheetsDispatchAttempt,
+) {
   const base = baseResponse?.trim();
   return [base, `[google-sheets] ${attempt.info}`].filter(Boolean).join("\n");
 }
 
-async function logGoogleSheetsDispatchBestEffort(payload: GoogleSheetsDispatchLogPayload): Promise<GoogleSheetsDispatchAttempt> {
+async function logGoogleSheetsDispatchBestEffort(
+  payload: GoogleSheetsDispatchLogPayload,
+): Promise<GoogleSheetsDispatchAttempt> {
   const webhookUrl = env.ALERTS_GOOGLE_SHEETS_WEBHOOK_URL;
   if (!webhookUrl) {
     return {
@@ -3229,7 +4406,10 @@ async function logGoogleSheetsDispatchBestEffort(payload: GoogleSheetsDispatchLo
     const response = await postGoogleSheetsDispatch(webhookUrl, payload);
 
     if (!response.ok) {
-      console.error(`Falha ao registrar dispatch no Google Sheets: ${response.status} ${response.responseText}`);
+      log.error(
+        { status: response.status, body: response.responseText },
+        "Falha ao registrar dispatch no Google Sheets",
+      );
       return {
         enabled: true,
         ok: false,
@@ -3247,7 +4427,7 @@ async function logGoogleSheetsDispatchBestEffort(payload: GoogleSheetsDispatchLo
       responseText: response.responseText,
     };
   } catch (error) {
-    console.error("Falha ao registrar dispatch no Google Sheets", error);
+    log.error({ err: error }, "Falha ao registrar dispatch no Google Sheets");
     return {
       enabled: true,
       ok: false,
@@ -3262,10 +4442,15 @@ function truncateGoogleSheetsResponse(responseText: string) {
     return "sem resposta";
   }
 
-  return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized;
+  return normalized.length > 240
+    ? `${normalized.slice(0, 237)}...`
+    : normalized;
 }
 
-async function postGoogleSheetsDispatch(webhookUrl: string, payload: GoogleSheetsDispatchLogPayload) {
+async function postGoogleSheetsDispatch(
+  webhookUrl: string,
+  payload: GoogleSheetsDispatchLogPayload,
+) {
   const response = await fetch(webhookUrl, {
     method: "POST",
     headers: {

@@ -135,7 +135,7 @@ export async function loadAnalyticsMatches(): Promise<AnalyticsMatch[]> {
         seasonId: Number(match.id_season ?? 0) || null,
         playedAt: match.match_kickoff,
         homePlayer: match.home_player || match.home_team || "Mandante",
-        awayPlayer: match.away_player || match.away_team,
+        awayPlayer: match.away_player || match.away_team || "Visitante",
         homeScore: match.home_score_ft ?? 0,
         awayScore: match.away_score_ft ?? 0,
       })),

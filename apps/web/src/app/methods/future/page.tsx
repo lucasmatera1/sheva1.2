@@ -14,7 +14,21 @@ const LEAGUE_OPTIONS: Array<{ queryValue: LeagueQueryValue; apiValue: LeagueApiV
   { queryValue: "6minvolta", apiValue: "6MIN VOLTA", label: "6min Volta" },
 ];
 
-const METHOD_OPTIONS: MethodCode[] = ["T+", "E", "(2E)", "(2D)", "(2D+)", "(3D)", "(3D+)", "(4D)", "(4D+)"];
+const METHOD_OPTIONS: MethodCode[] = [
+  "T+",
+  "E",
+  "(2E)",
+  "(2D)",
+  "(2D+)",
+  "(3D)",
+  "(3D+)",
+  "(4D)",
+  "(4D+)",
+  "HC-2",
+  "HC-3",
+  "HC-4",
+  "HC-5",
+];
 const SERIES_OPTIONS: SeriesCode[] = ["A", "B", "C", "D", "E", "F", "G"];
 const DAYS_FILTER_OPTIONS = [7, 15, 21, 30, 45, 60] as const;
 const SORT_OPTIONS = ["kickoff", "apx", "occurrences", "priority"] as const;

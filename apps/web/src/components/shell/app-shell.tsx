@@ -12,6 +12,7 @@ const navigation = [
   { href: "/methods", label: "Metodos" },
   { href: "/methods/future", label: "Future Metodos" },
   { href: "/methods/alerts", label: "Alertas" },
+  { href: "/alerts/pastmethods", label: "Metodos Recentes" },
   { href: "/backtest", label: "Backtest" },
   { href: "/h2h", label: "H2H" },
   { href: "/h2h/basket", label: "H2H Basket" },

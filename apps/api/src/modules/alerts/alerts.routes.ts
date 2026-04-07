@@ -2,12 +2,54 @@ import { Prisma } from "@prisma/client";
 import { Router, type Response } from "express";
 import { z } from "zod";
 import { AlertsService, type AlertRulesBackup } from "./alerts.service";
-import { clearDebugWebhookEvents, listDebugWebhookEvents, recordDebugWebhookEvent } from "./alerts.webhook-debug";
+import {
+  clearDebugWebhookEvents,
+  listDebugWebhookEvents,
+  recordDebugWebhookEvent,
+} from "./alerts.webhook-debug";
 
 const ALERT_LEAGUES = ["GT LEAGUE", "8MIN BATTLE", "6MIN VOLTA"] as const;
-const ALERT_METHODS = ["T+", "E", "(2E)", "(2D)", "(2D+)", "(3D)", "(3D+)", "(4D)", "(4D+)", "4D Jogador", "4W Jogador", "Fav T1", "Fav T2", "Fav T3"] as const;
+const ALERT_METHODS = [
+  "T+",
+  "E",
+  "(2E)",
+  "(2D)",
+  "(2D+)",
+  "(3D)",
+  "(3D+)",
+  "(4D)",
+  "(4D+)",
+  "HC-2",
+  "HC-3",
+  "HC-4",
+  "HC-5",
+  "4D Jogador",
+  "4W Jogador",
+  "Fav T1",
+  "Fav T2",
+  "Fav T3",
+  "Após DL",
+  "Após WDL",
+  "Após LWW",
+  "Após LL",
+  "Após DD",
+  "Após LDW",
+  "Após DLL",
+  "Após WLD",
+  "Após DLD",
+  "Após LLW",
+  "Após LWL",
+  "Após WDD",
+  "Após DLW",
+  "Após LLL",
+  "Após LWD",
+  "Após WWL",
+  "Após WWD",
+  "Após DDW",
+  "Após LLLL",
+] as const;
 const ALERT_SERIES = ["A", "B", "C", "D", "E", "F", "G"] as const;
-const ALERT_DAYS = [7, 15, 21, 30, 45, 60] as const;
+const ALERT_DAYS = [6, 7, 15, 21, 30, 45, 60] as const;
 const ALERT_TRANSPORTS = ["webhook", "telegram"] as const;
 
 const router = Router();
@@ -26,7 +68,10 @@ const createRuleSchema = z.object({
   windowDays: z
     .number()
     .int()
-    .refine((value) => ALERT_DAYS.includes(value as (typeof ALERT_DAYS)[number]), { message: "windowDays invalido" })
+    .refine(
+      (value) => ALERT_DAYS.includes(value as (typeof ALERT_DAYS)[number]),
+      { message: "windowDays invalido" },
+    )
     .optional(),
   recipients: z.array(z.string().trim().min(1)).min(1),
   webhookUrl: z.string().url().optional().nullable(),
@@ -46,7 +91,10 @@ const updateRuleSchema = z.object({
   windowDays: z
     .number()
     .int()
-    .refine((value) => ALERT_DAYS.includes(value as (typeof ALERT_DAYS)[number]), { message: "windowDays invalido" })
+    .refine(
+      (value) => ALERT_DAYS.includes(value as (typeof ALERT_DAYS)[number]),
+      { message: "windowDays invalido" },
+    )
     .optional(),
   recipients: z.array(z.string().trim().min(1)).min(1).optional(),
   webhookUrl: z.string().url().optional().nullable(),
@@ -107,7 +155,10 @@ const backupRuleSchema = z.object({
   windowDays: z
     .number()
     .int()
-    .refine((value) => ALERT_DAYS.includes(value as (typeof ALERT_DAYS)[number]), { message: "windowDays invalido" }),
+    .refine(
+      (value) => ALERT_DAYS.includes(value as (typeof ALERT_DAYS)[number]),
+      { message: "windowDays invalido" },
+    ),
   recipients: z.array(z.string().trim().min(1)).min(1),
   webhookUrl: z.string().url().nullable(),
   note: z.string().trim().max(255).nullable(),
@@ -122,7 +173,10 @@ const backupDispatchSchema = z.object({
   ruleName: z.string().nullable(),
   leagueType: z.string().nullable(),
   methodCode: z.string().nullable(),
-  eventType: z.enum(["initial_signal", "result_followup"]).optional().default("initial_signal"),
+  eventType: z
+    .enum(["initial_signal", "result_followup"])
+    .optional()
+    .default("initial_signal"),
   signalKey: z.string(),
   confrontationKey: z.string(),
   confrontationLabel: z.string(),
@@ -142,7 +196,9 @@ const backupDispatchSchema = z.object({
 
 const backupSchema = z.object({
   format: z.literal("sheva-method-alert-rules"),
-  version: z.union([z.literal(1), z.literal(2)]).transform((value) => (value === 1 ? 2 : value)),
+  version: z
+    .union([z.literal(1), z.literal(2)])
+    .transform((value) => (value === 1 ? 2 : value)),
   exportedAt: z.string(),
   persistenceMode: z.enum(["database", "memory"]),
   rules: z.array(backupRuleSchema),
@@ -187,7 +243,10 @@ router.post("/telegram/test", async (request, response, next) => {
     const parsed = telegramTestSchema.parse(request.body ?? {});
     response.json(await service.sendTelegramTestMessage(parsed));
   } catch (error) {
-    if (error instanceof Error && error.message.includes("TELEGRAM_BOT_TOKEN")) {
+    if (
+      error instanceof Error &&
+      error.message.includes("TELEGRAM_BOT_TOKEN")
+    ) {
       response.status(503).json({ message: error.message });
       return;
     }
@@ -205,7 +264,10 @@ router.post("/google-sheets/test", async (request, response, next) => {
     const parsed = googleSheetsTestSchema.parse(request.body ?? {});
     response.json(await service.sendGoogleSheetsTest(parsed));
   } catch (error) {
-    if (error instanceof Error && error.message.includes("ALERTS_GOOGLE_SHEETS_WEBHOOK_URL")) {
+    if (
+      error instanceof Error &&
+      error.message.includes("ALERTS_GOOGLE_SHEETS_WEBHOOK_URL")
+    ) {
       response.status(503).json({ message: error.message });
       return;
     }
@@ -244,7 +306,10 @@ router.get("/backup/local-status", async (_request, response, next) => {
 
 router.get("/backup/local-history", async (request, response, next) => {
   try {
-    const limit = typeof request.query.limit === "string" ? Number(request.query.limit) : 12;
+    const limit =
+      typeof request.query.limit === "string"
+        ? Number(request.query.limit)
+        : 12;
     if (!Number.isFinite(limit) || limit < 1 || limit > 100) {
       response.status(400).json({ message: "limit invalido" });
       return;
@@ -278,7 +343,9 @@ router.post("/rules", async (request, response, next) => {
   try {
     const parsed = createRuleSchema.parse(request.body);
     if (parsed.series && parsed.leagueType !== "GT LEAGUE") {
-      response.status(400).json({ message: "series so pode ser usada com GT LEAGUE" });
+      response
+        .status(400)
+        .json({ message: "series so pode ser usada com GT LEAGUE" });
       return;
     }
 
@@ -317,60 +384,71 @@ router.patch("/rules/:ruleId", async (request, response, next) => {
   }
 });
 
-router.get("/rules/:ruleId/current-signals", async (request, response, next) => {
-  try {
-    const ruleId = parseRuleId(request.params.ruleId);
-    const limit = typeof request.query.limit === "string" ? Number(request.query.limit) : 20;
-    if (!ruleId) {
-      response.status(400).json({ message: "ruleId invalido" });
-      return;
+router.get(
+  "/rules/:ruleId/current-signals",
+  async (request, response, next) => {
+    try {
+      const ruleId = parseRuleId(request.params.ruleId);
+      const limit =
+        typeof request.query.limit === "string"
+          ? Number(request.query.limit)
+          : 20;
+      if (!ruleId) {
+        response.status(400).json({ message: "ruleId invalido" });
+        return;
+      }
+
+      if (!Number.isFinite(limit) || limit < 1 || limit > 100) {
+        response.status(400).json({ message: "limit invalido" });
+        return;
+      }
+
+      const preview = await service.previewCurrentSignals(ruleId, { limit });
+      if (!preview) {
+        response.status(404).json({ message: "Regra nao encontrada" });
+        return;
+      }
+
+      response.json(preview);
+    } catch (error) {
+      if (handleAlertsError(error, response)) {
+        return;
+      }
+
+      next(error);
     }
+  },
+);
 
-    if (!Number.isFinite(limit) || limit < 1 || limit > 100) {
-      response.status(400).json({ message: "limit invalido" });
-      return;
+router.post(
+  "/rules/:ruleId/dispatch-current-signals",
+  async (request, response, next) => {
+    try {
+      const ruleId = parseRuleId(request.params.ruleId);
+      if (!ruleId) {
+        response.status(400).json({ message: "ruleId invalido" });
+        return;
+      }
+
+      const parsed = currentSignalsDispatchSchema.parse(request.body ?? {});
+      const result = await service.dispatchCurrentSignals(ruleId, {
+        maxSignals: parsed.maxSignals,
+      });
+      if (!result) {
+        response.status(404).json({ message: "Regra nao encontrada" });
+        return;
+      }
+
+      response.json(result);
+    } catch (error) {
+      if (handleAlertsError(error, response)) {
+        return;
+      }
+
+      next(error);
     }
-
-    const preview = await service.previewCurrentSignals(ruleId, { limit });
-    if (!preview) {
-      response.status(404).json({ message: "Regra nao encontrada" });
-      return;
-    }
-
-    response.json(preview);
-  } catch (error) {
-    if (handleAlertsError(error, response)) {
-      return;
-    }
-
-    next(error);
-  }
-});
-
-router.post("/rules/:ruleId/dispatch-current-signals", async (request, response, next) => {
-  try {
-    const ruleId = parseRuleId(request.params.ruleId);
-    if (!ruleId) {
-      response.status(400).json({ message: "ruleId invalido" });
-      return;
-    }
-
-    const parsed = currentSignalsDispatchSchema.parse(request.body ?? {});
-    const result = await service.dispatchCurrentSignals(ruleId, { maxSignals: parsed.maxSignals });
-    if (!result) {
-      response.status(404).json({ message: "Regra nao encontrada" });
-      return;
-    }
-
-    response.json(result);
-  } catch (error) {
-    if (handleAlertsError(error, response)) {
-      return;
-    }
-
-    next(error);
-  }
-});
+  },
+);
 
 router.post("/rules/:ruleId/test-dispatch", async (request, response, next) => {
   try {
@@ -397,60 +475,66 @@ router.post("/rules/:ruleId/test-dispatch", async (request, response, next) => {
   }
 });
 
-router.post("/rules/:ruleId/test-future-dispatch", async (request, response, next) => {
-  try {
-    const ruleId = parseRuleId(request.params.ruleId);
-    if (!ruleId) {
-      response.status(400).json({ message: "ruleId invalido" });
-      return;
+router.post(
+  "/rules/:ruleId/test-future-dispatch",
+  async (request, response, next) => {
+    try {
+      const ruleId = parseRuleId(request.params.ruleId);
+      if (!ruleId) {
+        response.status(400).json({ message: "ruleId invalido" });
+        return;
+      }
+
+      const parsed = testFutureDispatchSchema.parse(request.body ?? {});
+      const result = await service.sendTestFutureDispatch(ruleId, parsed);
+      if (!result) {
+        response.status(404).json({ message: "Regra nao encontrada" });
+        return;
+      }
+
+      response.json(result);
+    } catch (error) {
+      if (handleAlertsError(error, response)) {
+        return;
+      }
+
+      next(error);
     }
+  },
+);
 
-    const parsed = testFutureDispatchSchema.parse(request.body ?? {});
-    const result = await service.sendTestFutureDispatch(ruleId, parsed);
-    if (!result) {
-      response.status(404).json({ message: "Regra nao encontrada" });
-      return;
+router.post(
+  "/rules/:ruleId/test-future-resolve",
+  async (request, response, next) => {
+    try {
+      const ruleId = parseRuleId(request.params.ruleId);
+      if (!ruleId) {
+        response.status(400).json({ message: "ruleId invalido" });
+        return;
+      }
+
+      const parsed = testFutureResolveSchema.parse(request.body ?? {});
+      const result = await service.sendTestFutureResolution(ruleId, parsed);
+      if (!result) {
+        response.status(404).json({ message: "Regra nao encontrada" });
+        return;
+      }
+
+      response.json(result);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("nao encontrado")) {
+        response.status(404).json({ message: error.message });
+        return;
+      }
+
+      if (handleAlertsError(error, response)) {
+        return;
+      }
+
+      next(error);
     }
-
-    response.json(result);
-  } catch (error) {
-    if (handleAlertsError(error, response)) {
-      return;
-    }
-
-    next(error);
-  }
-});
-
-router.post("/rules/:ruleId/test-future-resolve", async (request, response, next) => {
-  try {
-    const ruleId = parseRuleId(request.params.ruleId);
-    if (!ruleId) {
-      response.status(400).json({ message: "ruleId invalido" });
-      return;
-    }
-
-    const parsed = testFutureResolveSchema.parse(request.body ?? {});
-    const result = await service.sendTestFutureResolution(ruleId, parsed);
-    if (!result) {
-      response.status(404).json({ message: "Regra nao encontrada" });
-      return;
-    }
-
-    response.json(result);
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("nao encontrado")) {
-      response.status(404).json({ message: error.message });
-      return;
-    }
-
-    if (handleAlertsError(error, response)) {
-      return;
-    }
-
-    next(error);
-  }
-});
+  },
+);
 
 router.post("/resolve-future-results", async (request, response, next) => {
   try {
@@ -484,7 +568,10 @@ router.delete("/rules/:ruleId", async (request, response, next) => {
       return;
     }
 
-    response.json({ message: `Regra removida: ${deletedRule.name}`, rule: deletedRule });
+    response.json({
+      message: `Regra removida: ${deletedRule.name}`,
+      rule: deletedRule,
+    });
   } catch (error) {
     if (handleAlertsError(error, response)) {
       return;
@@ -496,20 +583,54 @@ router.delete("/rules/:ruleId", async (request, response, next) => {
 
 router.get("/dispatches", async (request, response, next) => {
   try {
-    const parsedRuleId = typeof request.query.ruleId === "string" ? parseRuleId(request.query.ruleId) : undefined;
-    const limit = typeof request.query.limit === "string" ? Number(request.query.limit) : undefined;
+    const parsedRuleId =
+      typeof request.query.ruleId === "string"
+        ? parseRuleId(request.query.ruleId)
+        : undefined;
+    const limit =
+      typeof request.query.limit === "string"
+        ? Number(request.query.limit)
+        : undefined;
 
     if (request.query.ruleId !== undefined && !parsedRuleId) {
       response.status(400).json({ message: "ruleId invalido" });
       return;
     }
 
-    if (limit !== undefined && (!Number.isFinite(limit) || limit < 1 || limit > 200)) {
+    if (
+      limit !== undefined &&
+      (!Number.isFinite(limit) || limit < 1 || limit > 200)
+    ) {
       response.status(400).json({ message: "limit invalido" });
       return;
     }
 
-    response.json(await service.listDispatches({ ruleId: parsedRuleId ?? undefined, limit }));
+    response.json(
+      await service.listDispatches({
+        ruleId: parsedRuleId ?? undefined,
+        limit,
+      }),
+    );
+  } catch (error) {
+    if (handleAlertsError(error, response)) {
+      return;
+    }
+
+    next(error);
+  }
+});
+
+router.get("/open-signals", async (request, response, next) => {
+  try {
+    const includeRulePreview =
+      request.query.includeRulePreview === "1" ||
+      request.query.includeRulePreview === "true";
+
+    response.json(
+      await service.listOpenFutureSignals({
+        includeRulePreview,
+      }),
+    );
   } catch (error) {
     if (handleAlertsError(error, response)) {
       return;
@@ -574,7 +695,9 @@ router.post("/backup/restore-latest", async (request, response, next) => {
     );
   } catch (error) {
     if (error instanceof Error && error.message.includes("ENOENT")) {
-      response.status(404).json({ message: "Nenhum backup local latest.json foi encontrado no servidor." });
+      response.status(404).json({
+        message: "Nenhum backup local latest.json foi encontrado no servidor.",
+      });
       return;
     }
 
@@ -642,7 +765,8 @@ function handleAlertsError(error: unknown, response: Response) {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P2021") {
       response.status(503).json({
-        message: "As tabelas de alertas ainda nao existem no banco atual. Execute o SQL de migration com um usuario que tenha permissao de CREATE TABLE.",
+        message:
+          "As tabelas de alertas ainda nao existem no banco atual. Execute o SQL de migration com um usuario que tenha permissao de CREATE TABLE.",
       });
       return true;
     }
@@ -650,12 +774,16 @@ function handleAlertsError(error: unknown, response: Response) {
 
   if (error instanceof Prisma.PrismaClientInitializationError) {
     response.status(503).json({
-      message: "Os alertas nao conseguiram acessar o MySQL remoto neste momento. Tente novamente em instantes.",
+      message:
+        "Os alertas nao conseguiram acessar o MySQL remoto neste momento. Tente novamente em instantes.",
     });
     return true;
   }
 
-  if (error instanceof Error && error.message.includes("series so pode ser usada com GT LEAGUE")) {
+  if (
+    error instanceof Error &&
+    error.message.includes("series so pode ser usada com GT LEAGUE")
+  ) {
     response.status(400).json({ message: error.message });
     return true;
   }

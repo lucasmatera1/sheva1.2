@@ -730,31 +730,53 @@ async def fast_bet_overview(page, stake: float, target_odd: float | None, signal
     return result
 
 
-async def keep_current_page_alive(page, on_logout=None, engine=None) -> None:
+# JS robusto para scroll to top — encontra containers scrolláveis e reseta
+_SCROLL_TOP_JS = """() => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    // Encontra containers com overflow scroll/auto que estão scrollados
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+    while (walker.nextNode()) {
+        const el = walker.currentNode;
+        if (el.scrollTop > 0) {
+            el.scrollTop = 0;
+        }
+    }
+}"""
+
+
+async def keep_current_page_alive(page, on_logout=None, engine=None, ui=None) -> None:
     """Mantém a página ativa, fecha popups, re-injeta geo e detecta logout.
 
     Args:
         page: Playwright page
         on_logout: callback async chamado quando logout é detectado
         engine: BrowserEngine para re-injeção de geo
+        ui: UIBetPlacer opcional — se fornecido, roda checker de jogadores visíveis
     """
     _check_count = 0
     while True:
         try:
+            # Pausa keep-alive enquanto aposta está em andamento (evita contention no CDP)
+            if hasattr(page, '_bet_active') and page._bet_active.is_set():
+                await asyncio.sleep(0.5)
+                continue
             await dismiss_popups(page)
-            # Scroll natural variado (evita padrão robótico)
-            scroll_delta = random.randint(15, 80) * random.choice([1, -1])
-            await page.evaluate(
-                f"""() => {{
-                    const y = window.scrollY || 0;
-                    window.scrollTo({{ top: y + {scroll_delta}, behavior: 'smooth' }});
-                }}"""
-            )
+            # Scroll para o topo (mantém odds visíveis e evita acumular drift)
+            await page.evaluate(_SCROLL_TOP_JS)
             _check_count += 1
 
             # A cada 2 ciclos (~50s), re-injeta geo stealth em todos os frames
             if engine and _check_count % 2 == 0:
                 await engine._inject_geo_evaluate(page)
+
+            # A cada 2 ciclos (~50s), checker: loga jogadores visíveis + atualiza cache
+            if ui and _check_count % 2 == 0:
+                try:
+                    await ui.check_visible_players()
+                except Exception:
+                    pass
 
             # A cada 6 ciclos (~2.5min), verifica geo + login
             if _check_count % 6 == 0:
@@ -782,11 +804,13 @@ async def keep_current_page_alive(page, on_logout=None, engine=None) -> None:
 
 
 import asyncio
+import http.server
 import json
 import os
 import random
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -823,6 +847,7 @@ from config.settings import get_settings
 from src.api.bet_interceptor import BetInterceptor
 from src.api.token_harvester import TokenHarvester
 from src.betting.safety import SafetyGuard, RejectReason
+from src.betting.ui_placer import UIBetPlacer
 from src.browser.engine import BrowserEngine
 from src.browser.login import ensure_logged_in
 from src.browser.session import load_cookies, save_cookies
@@ -1990,7 +2015,10 @@ async def accept_cookies(page) -> bool:
         if bbox:
             cx = bbox["x"] + random.uniform(5, max(6, bbox["w"] - 5))
             cy = bbox["y"] + random.uniform(3, max(4, bbox["h"] - 3))
-            await page.mouse.click(cx, cy)
+            try:
+                await asyncio.wait_for(page.mouse.click(cx, cy), timeout=5)
+            except asyncio.TimeoutError:
+                await page.evaluate(f"() => {{ const el = document.elementFromPoint({cx}, {cy}); if (el) el.click(); }}")
             logger.info("Cookies aceitos via mouse ✔")
             await asyncio.sleep(0.5)
             return True
@@ -2035,7 +2063,10 @@ async def warm_up(page, stake: float = 1.0) -> None:
         if odd_info:
             ox = odd_info["x"] + random.uniform(3, max(4, odd_info["w"] - 3))
             oy = odd_info["y"] + random.uniform(3, max(4, odd_info["h"] - 3))
-            await page.mouse.click(ox, oy)
+            try:
+                await asyncio.wait_for(page.mouse.click(ox, oy), timeout=5)
+            except asyncio.TimeoutError:
+                await page.evaluate(f"() => {{ const el = document.elementFromPoint({ox}, {oy}); if (el) el.click(); }}")
             odd_clicked = odd_info["text"]
             logger.info("Warm-up: odd clicada ({}) — caderneta aberta", odd_clicked)
             await asyncio.sleep(2)
@@ -2093,7 +2124,10 @@ async def warm_up(page, stake: float = 1.0) -> None:
             if lembrar_bbox:
                 lx = lembrar_bbox["x"] + random.uniform(3, max(4, lembrar_bbox["w"] - 3))
                 ly = lembrar_bbox["y"] + random.uniform(3, max(4, lembrar_bbox["h"] - 3))
-                await page.mouse.click(lx, ly)
+                try:
+                    await asyncio.wait_for(page.mouse.click(lx, ly), timeout=5)
+                except asyncio.TimeoutError:
+                    await page.evaluate(f"() => {{ const el = document.elementFromPoint({lx}, {ly}); if (el) el.click(); }}")
                 logger.info("Warm-up: 'Lembrar' clicado via mouse ({}) em ({:.0f},{:.0f})", lembrar_bbox["via"], lx, ly)
             else:
                 logger.warning("Warm-up: toggle 'Lembrar' não encontrado")
@@ -2130,7 +2164,10 @@ async def warm_up(page, stake: float = 1.0) -> None:
             if close_bbox:
                 cx = close_bbox["x"] + random.uniform(2, max(3, close_bbox["w"] - 2))
                 cy = close_bbox["y"] + random.uniform(2, max(3, close_bbox["h"] - 2))
-                await page.mouse.click(cx, cy)
+                try:
+                    await asyncio.wait_for(page.mouse.click(cx, cy), timeout=5)
+                except asyncio.TimeoutError:
+                    await page.evaluate(f"() => {{ const el = document.elementFromPoint({cx}, {cy}); if (el) el.click(); }}")
                 logger.info("Warm-up: caderneta fechada via mouse ({})", close_bbox["via"])
             else:
                 # Fallback: Escape
@@ -2177,7 +2214,10 @@ async def click_continuar(page) -> bool:
         if bbox:
             cx = bbox["x"] + random.uniform(10, max(11, bbox["w"] - 10))
             cy = bbox["y"] + random.uniform(5, max(6, bbox["h"] - 5))
-            await page.mouse.click(cx, cy)
+            try:
+                await asyncio.wait_for(page.mouse.click(cx, cy), timeout=5)
+            except asyncio.TimeoutError:
+                await page.evaluate(f"() => {{ const el = document.elementFromPoint({cx}, {cy}); if (el) el.click(); }}")
             logger.info("Botão 'Continuar' clicado via mouse!")
             await asyncio.sleep(2)
             return True
@@ -2186,310 +2226,303 @@ async def click_continuar(page) -> bool:
         return False
 
 
+async def auto_login(page, context) -> bool:
+    """Login automático usando credenciais do .env — IDÊNTICO ao test_multi_bet.py."""
+    bet_user = os.environ.get("BET365_USER", "")
+    bet_pass = os.environ.get("BET365_PASS", "")
+    if not bet_user or not bet_pass:
+        return False
+
+    try:
+        cookie_btn = await page.query_selector("#onetrust-accept-btn-handler")
+        if cookie_btn:
+            await cookie_btn.click()
+            await asyncio.sleep(1)
+    except Exception:
+        pass
+
+    login_visible = await page.evaluate("""() => {
+        const btns = [...document.querySelectorAll('button')];
+        return btns.some(b => b.textContent.trim() === 'Login');
+    }""")
+    if not login_visible:
+        return True
+
+    login_bbox = await page.evaluate("""() => {
+        const btns = [...document.querySelectorAll('button')];
+        const loginBtn = btns.find(b => b.textContent.trim() === 'Login');
+        if (loginBtn) {
+            const r = loginBtn.getBoundingClientRect();
+            if (r.width > 0) return { x: r.x, y: r.y, w: r.width, h: r.height };
+        }
+        return null;
+    }""")
+    if login_bbox:
+        lx = login_bbox["x"] + random.uniform(5, max(6, login_bbox["w"] - 5))
+        ly = login_bbox["y"] + random.uniform(3, max(4, login_bbox["h"] - 3))
+        try:
+            await asyncio.wait_for(page.mouse.click(lx, ly), timeout=5)
+        except asyncio.TimeoutError:
+            await page.evaluate(f"() => {{ const el = document.elementFromPoint({lx}, {ly}); if (el) el.click(); }}")
+    else:
+        return False
+
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+    except Exception:
+        pass
+    await asyncio.sleep(2)
+
+    try:
+        await page.wait_for_selector(
+            'input[type="text"], input[name="username"]',
+            timeout=15_000, state="visible",
+        )
+    except Exception:
+        pass
+
+    user_input = page.locator('input[type="text"]').first
+    pass_input = page.locator('input[type="password"]').first
+    await user_input.fill(bet_user)
+    await asyncio.sleep(0.3)
+    await pass_input.fill(bet_pass)
+    await asyncio.sleep(0.3)
+    await page.keyboard.press("Enter")
+    await asyncio.sleep(5)
+
+    for _ in range(3):
+        ck = await context.cookies("https://www.bet365.bet.br")
+        if any(c["name"] == "pstk" for c in ck):
+            return True
+        await asyncio.sleep(3)
+    return False
+
+
 async def full_session_init(browser, context, page, engine) -> bool:
-    """Fluxo completo pós-abertura do browser:
-    1. Navega para Bet365
-    2. Faz login (cookies + auto-login)
-    3. Clica 'Continuar'
-    4. Faz warm-up
+    """Fluxo completo pós-abertura do browser — ESPELHA test_multi_bet.py (3/3).
 
-    Returns True se tudo OK, False se falhou.
+    Ordem idêntica ao test_multi_bet.py:
+    1. page.goto → login check
+    2. Navega #/IP/FAV/
+    3. dismiss overlays
+    4. Geo check
+    5. Espera gwt (até 60s)
+    6. Warm-up (Lembrar stake)
+
+    Returns: None = falha login, True/False = warmup_ok (Lembrar status)
     """
-    settings = get_settings()
-    s = settings.browser
-
     logger.info("=" * 50)
-    logger.info("INICIANDO SESSÃO COMPLETA")
+    logger.info("INICIANDO SESSÃO COMPLETA (padrão test_multi_bet.py)")
     logger.info("=" * 50)
 
-    # 1. Navega para Bet365
+    # 1. page.goto — EXATAMENTE como test_multi_bet.py
     print("⏳ Navegando para Bet365...")
     try:
-        await page.goto("https://www.bet365.bet.br", wait_until="commit", timeout=60000)
-        logger.info("Página Bet365 carregou (commit)")
+        await page.goto(
+            "https://www.bet365.bet.br/#/IP/",
+            wait_until="domcontentloaded",
+            timeout=30000,
+        )
+        logger.info("Página Bet365 carregou (domcontentloaded)")
     except Exception as e:
         logger.warning("Navegação inicial lenta: {}", e)
     await asyncio.sleep(3)
-    await accept_cookies(page)
-    await dismiss_popups(page)
 
-    # 2. Verifica login (1 check rápido — cookies podem já resolver)
-    logged = await ensure_logged_in(page, context)
-    if logged:
-        logger.info("Login via cookies OK!")
-    else:
-        # Clica Login imediatamente e faz login automático
-        logger.info("Não logado — iniciando login automático...")
-        try:
-            await dismiss_popups(page)
+    # 2. Check sessão: cookie pstk + DOM (EXATAMENTE como test_multi_bet.py)
+    has_pstk = any(
+        c["name"] == "pstk"
+        for c in await context.cookies("https://www.bet365.bet.br")
+    )
 
-            # Clica Login via mouse humanizado
-            login_bbox = await page.evaluate("""() => {
+    session_active = False
+    if has_pstk:
+        for _ in range(16):
+            dom_check = await page.evaluate("""() => {
                 const btns = [...document.querySelectorAll('button')];
-                const loginBtn = btns.find(b => b.textContent.trim() === 'Login');
-                if (loginBtn) {
-                    const r = loginBtn.getBoundingClientRect();
-                    if (r.width > 0) return { x: r.x, y: r.y, w: r.width, h: r.height };
-                }
-                return null;
+                const hasLogin = btns.some(b => b.textContent.trim() === 'Login');
+                const hasMyBets = btns.some(b => {
+                    const t = b.textContent.trim();
+                    return t.includes('Minhas Apostas') || t.includes('My Bets');
+                });
+                const balEl = document.querySelector('.hm-Balance, [class*="Balance"]');
+                const hasBal = balEl && balEl.textContent.trim().length > 0;
+                return { hasLogin, hasMyBets, hasBal, btnCount: btns.length };
             }""")
-            if login_bbox:
-                lx = login_bbox["x"] + random.uniform(5, max(6, login_bbox["w"] - 5))
-                ly = login_bbox["y"] + random.uniform(3, max(4, login_bbox["h"] - 3))
-                await page.mouse.click(lx, ly)
-                logger.info("Botão Login clicado via mouse")
-            else:
-                logger.warning("Botão Login não encontrado no DOM")
+            logger.debug("Session check: {}", dom_check)
 
-            # Aguarda navegação/DOM estabilizar após click no Login
-            # O Bet365 pode navegar para uma página de login separada
-            try:
-                await page.wait_for_load_state("domcontentloaded", timeout=10_000)
-            except Exception:
-                pass
-            await asyncio.sleep(2)
-
-            # Espera campo de login aparecer no DOM (até 15s)
-            try:
-                await page.wait_for_selector(
-                    'input[type="text"], input[name="username"], input[autocomplete="username"]',
-                    timeout=15_000,
-                    state="visible",
-                )
-            except Exception:
-                logger.warning("Campo de login não apareceu em 15s")
-
-            # Preenche credenciais com digitação humanizada (evita detecção)
-            bet_user = os.environ.get("BET365_USER", "")
-            bet_pass = os.environ.get("BET365_PASS", "")
-
-            # Foca campo de usuário via JS (tenta múltiplos seletores)
-            await page.evaluate("""() => {
-                const sel = document.querySelector('input[type="text"]')
-                    || document.querySelector('input[name="username"]')
-                    || document.querySelector('input[autocomplete="username"]')
-                    || document.querySelector('input:not([type="password"]):not([type="hidden"])');
-                if (sel) sel.focus();
-            }""")
-            await asyncio.sleep(0.3)
-            await page.keyboard.press("Control+a")
-            await page.keyboard.press("Backspace")
-            await page.keyboard.type(bet_user, delay=55)
-            logger.info("Usuário digitado: {}***", bet_user[:5] if bet_user else "VAZIO")
+            if dom_check["hasMyBets"] or dom_check["hasBal"]:
+                session_active = True
+                break
+            if dom_check["hasLogin"] and dom_check["btnCount"] > 2:
+                break
             await asyncio.sleep(0.5)
 
-            # Foca campo de senha via JS
-            await page.evaluate("""() => {
-                const pw = document.querySelector('input[type="password"]');
-                if (pw) pw.focus();
-            }""")
-            await asyncio.sleep(0.3)
-            await page.keyboard.press("Control+a")
-            await page.keyboard.press("Backspace")
-            await page.keyboard.type(bet_pass, delay=65)
-            logger.info("Senha digitada ({} chars)", len(bet_pass))
-            await asyncio.sleep(0.5)
-
-            # Submit: pressiona Enter no campo de senha (como um humano faria)
-            await page.keyboard.press("Enter")
-            logger.info("Enter pressionado — aguardando login...")
-            await asyncio.sleep(8)
-
-            await dismiss_popups(page)
-            logged = await ensure_logged_in(page, context)
-            if logged:
-                logger.info("Login automático SUCESSO!")
-            else:
-                # Tenta esperar mais um pouco (Bet365 pode ser lento)
-                await asyncio.sleep(5)
-                logged = await ensure_logged_in(page, context)
-                if logged:
-                    logger.info("Login automático SUCESSO (2a tentativa)!")
-                else:
-                    err_msg = await page.evaluate("""() => {
-                        const errs = document.querySelectorAll('[class*="Error"], [class*="error"], [class*="lms-"]');
-                        return [...errs].map(e => e.textContent.trim()).filter(t => t.length > 0 && t.length < 200);
-                    }""")
-                    logger.warning("Login falhou. Erros no DOM: {}", err_msg)
-        except Exception as e:
-            logger.warning("Login automático falhou: {}", e)
+    if session_active:
+        print("  ✅ Sessão ativa — login pulado!")
+        logged = True
+    else:
+        if has_pstk:
+            print("  Cookies presentes mas sessão expirou — fazendo login...")
+        else:
+            print("  Sem sessão salva — fazendo login...")
+        logged = await auto_login(page, context)
+        if logged:
+            await save_cookies(context)
+            print("  ✅ Login OK! (cookies salvos)")
 
     if not logged:
         logger.error("Não logado! Execute manual_login.py primeiro.")
-        return False
+        return None
     print("🔐 Login: ✅")
 
-    # 3. Aceita cookies + Clica "Continuar" (pós-login)
-    await asyncio.sleep(2)
-    await accept_cookies(page)
-    await click_continuar(page)
-    await dismiss_popups(page)
+    # 3. Navega para #/IP/B18 (geo/gwt) — EXATAMENTE como test_multi_bet.py
+    print("  Navegando para #/IP/B18 (geo/gwt)...")
+    await page.evaluate("window.location.hash = '#/IP/B18'")
+    await asyncio.sleep(3)
 
-    # 4. Warm-up (abre caderneta, preenche stake, fecha)
-    await warm_up(page, stake=STAKE)
+    # 4. Dismiss overlays (EXATAMENTE como test_multi_bet.py)
+    ui_pre = UIBetPlacer(page)
+    await asyncio.sleep(1)
+    await ui_pre.dismiss_overlays()
 
-    # 5. Geo check — re-injeta override robusto via evaluate em todos os frames
-    await engine._inject_geo_evaluate(page)
-    await engine.setup_frame_listeners(page)
-    geo = await engine.check_geolocation(page)
-    print(f"📍 Geo: {'OK' if geo else 'FALHOU'}")
+    # 5. Geo check (EXATAMENTE como test_multi_bet.py)
+    geo_ok = await engine.check_geolocation(page)
+    if geo_ok:
+        print(f"  📍 Geolocalização: OK (lat={geo_ok['latitude']:.4f})")
+    else:
+        print("  ⚠️ Geolocalização FALHOU — gwt pode não aparecer")
 
-    # 6. Popups finais
-    n = await dismiss_popups(page)
+    # 6. Espera gwt (até 60s) — EXATAMENTE como test_multi_bet.py
+    harvester = TokenHarvester()
+    tokens = await harvester.extract_from_page(page)
+    if not tokens.gwt:
+        print("  [*] Esperando gwt (até 60s)...")
+        for i in range(60):
+            await asyncio.sleep(1)
+            all_ck = await context.cookies()
+            if any(c["name"] == "gwt" for c in all_ck):
+                tokens = await harvester.extract_from_page(page)
+                print(f"  gwt OK após {i + 1}s")
+                break
+            if (i + 1) % 30 == 0:
+                # Re-navega apenas a cada 30s (menos agressivo)
+                await page.evaluate("window.location.hash = '#/IP'")
+                await asyncio.sleep(2)
+                await page.evaluate("window.location.hash = '#/IP/B18'")
+                await asyncio.sleep(3)
+                print(f"  ... {i + 1}s — re-navegando para triggar GeoComply...")
+
+    print(f"  gwt: {'OK' if tokens.gwt else 'AUSENTE'}  pstk: {'OK' if tokens.pstk else 'AUSENTE'}")
+
+    if not tokens.gwt:
+        print("  ⚠️ gwt AUSENTE — apostas provavelmente serão rejeitadas")
+        print("  Continuando mesmo assim...")
+
+    # 6b. Agora que gwt está pronto, navega para #/IP/FAV/ (favoritos — jogos no topo)
+    print("  Navegando para #/IP/FAV/ (favoritos)...")
+    await page.evaluate("window.location.hash = '#/IP/FAV/'")
+    await asyncio.sleep(3)
+
+    # 7. Dismiss overlays finais (pós-gwt)
+    dismissed = await ui_pre.dismiss_overlays()
+    if dismissed:
+        print(f"  Modal/overlay removido: {dismissed} overlays")
+
+    # 8. Warm-up via UIBetPlacer (Lembrar stake + CDP trusted events)
+    #    Tenta primeiro em #/IP/FAV/ (sempre terá favoritos), fallback #/IP/B18
+    ui = UIBetPlacer(page)
+    print("  Warm-up: tentando em #/IP/FAV/...")
+    warmup_ok = await ui.warm_up_stake(STAKE)
+    if not warmup_ok:
+        print("  Warm-up falhou em FAV — fallback #/IP/B18...")
+        await page.evaluate("window.location.hash = '#/IP/B18'")
+        await asyncio.sleep(3)
+        await ui_pre.dismiss_overlays()
+        warmup_ok = await ui.warm_up_stake(STAKE)
+        # Volta para FAV
+        await page.evaluate("window.location.hash = '#/IP/FAV/'")
+        await asyncio.sleep(2)
+
+    # Scroll para o topo após warm-up (que pode ter scrollado a página)
+    await page.evaluate(_SCROLL_TOP_JS)
+
+    if warmup_ok:
+        print(f"✅ Warm-up OK — stake R${STAKE:.2f} será lembrado (Lembrar ativo)")
+    else:
+        print(f"⚠️ Warm-up: 'Lembrar' não ativado — stake será preenchido manualmente")
+
+    # 9. Popups finais
+    n = await ui_pre.dismiss_overlays()
     if n:
         print(f"   Fechou {n} popup(s)")
 
-    # 7. Browser fica visível para debug
-    # _hide_browser_offscreen()  # DESATIVADO para debug visual
+    # 10. Scanner contínuo desativado — checker roda no keep-alive (~50s)
+    # await ui.start_scanner(interval=2.0)
+    print("✅ Checker ativo via keep-alive (escaneia jogadores a cada ~50s)")
 
-    logger.info("SESSÃO PRONTA — aguardando sinais (browser VISÍVEL)")
-    return True
+    logger.info("SESSÃO PRONTA — #/IP/FAV/ — aguardando sinais")
+    return warmup_ok
 
 
 # ─── Browser Setup (mesmo do bet_daemon.py) ──────────────────────────────────
 
-async def setup_browser():
-    """Abre browser e retorna (browser, context, page, engine).
+async def _close_browser(cm):
+    """Fecha browser via __aexit__ do context manager (cleanup correto)."""
+    if cm is None:
+        return
+    try:
+        await cm.__aexit__(None, None, None)
+    except Exception:
+        pass
 
-    Não faz login aqui — use full_session_init() depois.
+
+async def setup_browser():
+    """Abre browser e retorna (browser, context, page, engine, cm).
+
+    Segue EXATAMENTE o padrão do test_multi_bet.py (3/3 aceitas):
+    - engine.launch() + engine.new_page() (geo injection automática)
+    - load_cookies ANTES do goto
+    - WS listener ANTES do goto
+    - SEM interceptors de geocomply (atrapalham)
+
+    Retorna cm (context manager) para cleanup correto via _close_browser(cm).
     """
     settings = get_settings()
     s = settings.browser
     engine = BrowserEngine(s)
-    _geo_json = '{"location":{"lat":-23.4210,"lng":-51.9331},"accuracy":50}'
-
-    kw = {
-        "headless": s.headless,
-        "humanize": 0.3,
-        "os": "windows",
-        "firefox_user_prefs": {
-            "geo.enabled": True,
-            "geo.prompt.testing": True,
-            "geo.prompt.testing.allow": True,
-            "permissions.default.geo": 1,
-            "geo.provider.network.url": f"data:application/json,{_geo_json}",
-            "geo.provider.ms-windows-location": False,
-            "geo.provider.use_corelocation": False,
-            "geo.provider.use_gpsd": False,
-            "geo.provider.use_mls": False,
-        },
-    }
-
-    # Modo visível: abre janela maximizada
-    if not s.headless:
-        kw["window"] = (s.viewport_width, s.viewport_height)
 
     print("⏳ Abrindo browser...")
-    camoufox = AsyncCamoufox(**kw)
-    browser = await camoufox.__aenter__()
-    print("   Browser aberto, obtendo context...")
-    context = browser.contexts[0] if browser.contexts else await browser.new_context()
-    print("   Context OK, configurando geo...")
+    cm = engine.launch()
+    context = await cm.__aenter__()
 
-    for origin in ["https://www.bet365.bet.br", "https://bet365.bet.br", "https://www.bet365.com"]:
-        try:
-            await context.grant_permissions(["geolocation"], origin=origin)
-        except Exception:
-            pass
-    await context.set_geolocation({"latitude": -23.4210, "longitude": -51.9331})
+    # Usa engine.new_page() — mesmo que test_multi_bet.py
+    # Isso faz: grant_permissions + set_geolocation + _inject_geo_override
+    page = await engine.new_page(context)
+    page.set_default_timeout(30_000)
+    print("   Page criada com geo injection automática")
 
-    await load_cookies(context)
-    print("   Cookies carregados, criando page...")
-    page = await context.new_page()
-    print("   Page criada, configurando stealth...")
+    # Carrega cookies salvos (ANTES do goto, como test_multi_bet)
+    cookies_loaded = await load_cookies(context)
+    if cookies_loaded:
+        print("   Cookies carregados de sessão anterior")
 
-    # Só força viewport em headless — em modo visível o Camoufox usa a janela natural
-    if s.headless:
-        await page.set_viewport_size({"width": s.viewport_width, "height": s.viewport_height})
-
-    # Injeta script stealth robusto (geo + WebRTC + timezone + toString spoof + visibility)
-    await page.add_init_script(BrowserEngine.GEO_STEALTH_SCRIPT)
-    await page.add_init_script(BrowserEngine.VISIBILITY_STEALTH_SCRIPT)
-    # Registra listeners para injetar geo em novos iframes automaticamente
-    await engine.setup_frame_listeners(page)
-    logger.info("Geo stealth JS injetado + frame listeners registrados")
-
-    # Bloqueia tracking/analytics apenas (NÃO bloqueia imagens/fontes — Bet365 detecta)
-    await page.route("**/{analytics,tracking,beacon,pixel,telemetry,doubleclick,googletag}**", lambda route: route.abort())
-
-    # Intercepta requests de geo verification (GeoComply etc.) — responde com geo fake
-    async def _intercept_geo_request(route):
-        url = route.request.url.lower()
-        logger.debug("GEO INTERCEPT bloqueado: {}", url[:120])
-        # Responde com JSON de geo válida para Maringá-PR
-        await route.fulfill(
-            status=200,
-            content_type="application/json",
-            body='{"latitude":-23.4210,"longitude":-51.9331,"accuracy":30,"country_code":"BR","region":"PR","city":"Maringa","status":"OK"}',
-        )
-
-    for geo_pattern in [
-        "**/*geocomply*/**",
-        "**/*geolocation-check*/**",
-        "**/*geo-verify*/**",
-        "**/*location-verify*/**",
-        "**/*geoguard*/**",
-    ]:
-        await page.route(geo_pattern, _intercept_geo_request)
-
-    # ── Interceptor de tráfego HTTP/WS (Fase 1 — captura API da Bet365) ──
+    # WS listener ANTES do goto (captura WS que abrem no page load)
     _logs_dir = Path(__file__).resolve().parent.parent / "logs"
     _logs_dir.mkdir(parents=True, exist_ok=True)
     _traffic_log_path = _logs_dir / "bet365_api_traffic.jsonl"
     _ws_full_log_path = _logs_dir / "bet365_ws_full.jsonl"
 
     def _log_traffic(entry: dict):
-        """Append-only log de tráfego relevante em JSONL."""
         import json as _json
         entry["_ts"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         with open(_traffic_log_path, "a", encoding="utf-8") as f:
             f.write(_json.dumps(entry, ensure_ascii=False) + "\n")
 
     def _log_ws_full(entry: dict):
-        """Log completo de WS (sem filtro) — para análise de protocolo Etapa 2."""
         import json as _json
         entry["_ts"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         with open(_ws_full_log_path, "a", encoding="utf-8") as f:
             f.write(_json.dumps(entry, ensure_ascii=False) + "\n")
-
-    async def _on_request(request):
-        url = request.url
-        method = request.method
-        # Filtra apenas requests relevantes para apostas (ignora assets, analytics)
-        if any(kw in url.lower() for kw in [
-            "placebet", "betslip", "acceptodd", "stake",
-            "coupon", "receipt", "wager", "betsapi",
-            "/defaultapi/", "/sportsbookapi/", "/bettingapi/",
-            "login", "authenticate", "session", "token",
-        ]):
-            _log_traffic({
-                "type": "request",
-                "method": method,
-                "url": url,
-                "headers": dict(request.headers),
-                "post_data": request.post_data[:2000] if request.post_data else None,
-            })
-
-    async def _on_response(response):
-        url = response.url
-        if any(kw in url.lower() for kw in [
-            "placebet", "betslip", "acceptodd", "stake",
-            "coupon", "receipt", "wager", "betsapi",
-            "/defaultapi/", "/sportsbookapi/", "/bettingapi/",
-        ]):
-            body = None
-            try:
-                body = await response.text()
-                if len(body) > 5000:
-                    body = body[:5000] + "...[TRUNCATED]"
-            except Exception:
-                pass
-            _log_traffic({
-                "type": "response",
-                "status": response.status,
-                "url": url,
-                "body": body,
-            })
 
     async def _on_ws(ws):
         ws_url = ws.url
@@ -2497,7 +2530,6 @@ async def setup_browser():
         _log_traffic({"type": "ws_open", "url": ws_url})
 
         def _on_frame_sent(payload):
-            # Playwright passa dict {"payload": str|bytes} ou string direta  
             if isinstance(payload, dict):
                 raw = payload.get("payload", "")
             else:
@@ -2512,7 +2544,6 @@ async def setup_browser():
             _log_ws_full({"type": "ws_sent", "url": ws_url[:120], "data": data_str})
 
         def _on_frame_received(payload):
-            # Playwright passa dict {"payload": str|bytes} ou string direta
             if isinstance(payload, dict):
                 raw = payload.get("payload", "")
             else:
@@ -2523,9 +2554,7 @@ async def setup_browser():
                 except Exception:
                     raw = repr(raw)
             data_str = str(raw)[:5000]
-            # Log COMPLETO no arquivo full (para análise do protocolo)
             _log_ws_full({"type": "ws_recv", "url": ws_url[:120], "data": data_str})
-            # Log filtrado no arquivo principal (só keywords de aposta/odds)
             s = data_str[:500].lower()
             if any(kw in s for kw in [
                 "bet", "stake", "coupon", "receipt", "accept", "wager", "place",
@@ -2537,12 +2566,12 @@ async def setup_browser():
         ws.on("framesent", _on_frame_sent)
         ws.on("framereceived", _on_frame_received)
 
-    page.on("request", _on_request)
-    page.on("response", _on_response)
     page.on("websocket", _on_ws)
-    logger.info("Interceptor de tráfego HTTP/WS ativo → {}", _traffic_log_path.name)
+    logger.info("WS listener ativo (ANTES do goto)")
 
-    return browser, context, page, engine
+    # Retorna browser + context + page + engine + cm (para cleanup)
+    browser = context.browser
+    return browser, context, page, engine, cm
 
 
 # ─── Main ────────────────────────────────────────────────────────────────────
@@ -2591,24 +2620,30 @@ async def main() -> None:
             signal.get("teams"),
         )
 
-        browser, context, page, engine = await setup_browser()
+        browser, context, page, engine, cm = await setup_browser()
         if not page:
             return
-        ok = await full_session_init(browser, context, page, engine)
-        if not ok:
-            await browser.close()
+        warmup_result = await full_session_init(browser, context, page, engine)
+        if warmup_result is None:
+            await _close_browser(cm)
             return
         try:
-            if signal["url"]:
-                result = await fast_bet(page, signal["url"], STAKE, signal["odd"], signal)
+            ui = UIBetPlacer(page)
+            bet_result = await ui.place_bet_by_signal(
+                signal=signal,
+                stake=STAKE,
+                skip_if_remembered=bool(warmup_result),
+                max_odd_drop=MAX_ODD_DROP,
+            )
+            if bet_result.success:
+                logger.info("ACEITA! receipt={} odds={}", bet_result.bet_receipt, bet_result.odds)
             else:
-                result = await fast_bet_overview(page, STAKE, signal["odd"], signal)
-            logger.info("Resultado: {}", result)
+                logger.info("Resultado: sr={} cs={} erro={}", bet_result.sr, bet_result.cs, bet_result.error)
         except Exception as e:
-            logger.error("Erro no fast_bet: {}", e, exc_info=True)
+            logger.error("Erro no place_bet_by_signal: {}", e, exc_info=True)
         finally:
             await save_cookies(context)
-            await browser.close()
+            await _close_browser(cm)
         return
 
     # ─── Carrega config ──────────────────────────────────────────────────
@@ -2664,19 +2699,25 @@ async def main() -> None:
         return
 
     # ─── Abre browser + fluxo completo (login → continuar → warm-up) ────
-    browser, context, page, engine = await setup_browser()
+    browser, context, page, engine, cm = await setup_browser()
     if not page:
         await client.disconnect()
         return
 
-    ok = await full_session_init(browser, context, page, engine)
-    if not ok:
+    warmup_ok = await full_session_init(browser, context, page, engine)
+    if warmup_ok is None:
         print("❌ Não logado! Execute manual_login.py primeiro.")
-        await browser.close()
+        await _close_browser(cm)
         await client.disconnect()
         return
 
-    # ─── Etapa 2: Token Harvester + HTTP Interceptor ─────────────────────
+    # UIBetPlacer — mesma instância usada nos sinais (CDP trusted events)
+    ui = UIBetPlacer(page)
+
+    # ─── Etapa 2: Token Harvester (interceptor DESLIGADO — DOM puro) ─────
+    # NOTA: O BetInterceptor substitui o POST nativo por curl_cffi HTTP,
+    # o que causa cs=2 (rejeição). O test_multi_bet.py que deu 3/3 NÃO
+    # usava interceptor — a aposta ia pelo browser nativo (CDP trusted).
     harvester = TokenHarvester()
     interceptor = BetInterceptor(page, harvester)
     try:
@@ -2684,9 +2725,10 @@ async def main() -> None:
         await harvester.full_extract(page)
         harvester.start_sync_term_listener(page)
         await harvester.start_auto_refresh(page, interval=120)
-        await interceptor.install()
+        # interceptor.install() DESLIGADO — apostas vão pelo DOM/browser nativo
+        # await interceptor.install()
         logger.info(
-            "Etapa 2 ativo — gwt={}... interceptor ON",
+            "Etapa 2 ativo — gwt={}... interceptor OFF (DOM puro)",
             harvester.tokens.gwt[:20] if harvester.tokens else "?",
         )
     except (Exception, asyncio.CancelledError) as e:
@@ -2701,16 +2743,79 @@ async def main() -> None:
         logout_event.set()
 
     keepalive_task = asyncio.create_task(
-        keep_current_page_alive(page, on_logout=on_logout_detected, engine=engine)
+        keep_current_page_alive(page, on_logout=on_logout_detected, engine=engine, ui=ui)
     )
+
+    # ─── Spectator: screenshot loop em background ────────────────────────
+    _spectator_path = Path(__file__).resolve().parent.parent / "tmp" / "spectator_live.png"
+    _spectator_path.parent.mkdir(parents=True, exist_ok=True)
+    _spectator_running = True
+
+    async def _spectator_loop():
+        while _spectator_running:
+            try:
+                await page.screenshot(path=str(_spectator_path), full_page=False)
+            except Exception:
+                pass
+            await asyncio.sleep(0.3)
+
+    spectator_task = asyncio.create_task(_spectator_loop())
+
+    # ─── Spectator HTTP server embutido (porta 7777) ──────────────────
+    _spectator_html = """<!DOCTYPE html>
+<html><head><title>Sheva Spectator</title>
+<style>body{margin:0;background:#111;display:flex;justify-content:center;min-height:100vh}
+img{max-width:100vw;border:1px solid #333}
+#status{position:fixed;top:8px;left:12px;color:#0f0;font:14px monospace;background:rgba(0,0,0,0.7);padding:4px 8px;border-radius:4px;z-index:10}</style></head>
+<body><div id="status">LIVE</div><img id="screen" src="/screenshot?t=0"/>
+<script>const img=document.getElementById('screen'),status=document.getElementById('status');let f=0;
+setInterval(()=>{const n=new Image();n.onload=()=>{img.src=n.src;f++;status.textContent='LIVE | frame '+f};
+n.onerror=()=>{status.textContent='WAITING...'};n.src='/screenshot?t='+Date.now()},300);</script></body></html>"""
+
+    class _SpectatorHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.startswith("/screenshot"):
+                try:
+                    data = _spectator_path.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/png")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                except FileNotFoundError:
+                    self.send_response(404)
+                    self.end_headers()
+            else:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(_spectator_html.encode())
+        def log_message(self, format, *args):
+            pass
+        def handle(self):
+            try:
+                super().handle()
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                pass
+
+    _spectator_server = None
+    try:
+        _spectator_server = http.server.HTTPServer(("127.0.0.1", 7777), _SpectatorHandler)
+        threading.Thread(target=_spectator_server.serve_forever, daemon=True).start()
+        logger.info("Spectator ativo — http://localhost:7777")
+    except OSError as _e:
+        logger.warning("Spectator HTTP server não iniciou (porta 7777 ocupada?): {}", _e)
 
     bet_count = 0
     processed_signals = {}
     _bet_lock = asyncio.Lock()
+    _bet_active = asyncio.Event()  # sinaliza keep-alive para pausar durante aposta
     group_names = ", ".join(getattr(e, "title", "?") for e in entities)
     print(f"\n🟢 ATIVO — Ouvindo sinais de: {group_names}\n")
 
     # ─── Handler de mensagens (nova + editada) ───────────────────────────
+    # Usa UIBetPlacer com CDP trusted events — mesmo fluxo do test_multi_bet.py (3/3)
     async def _handle_signal(event, is_edit=False):
         nonlocal bet_count, page
         text = event.raw_text
@@ -2721,8 +2826,6 @@ async def main() -> None:
         # Verifica se já está apostando (evita race conditions)
         if _bet_lock.locked():
             logger.info("[SKIP] Aposta em andamento — sinal ignorado")
-            return
-        if not text:
             return
 
         msg_id = event.message.id
@@ -2778,25 +2881,17 @@ async def main() -> None:
         logger.info("SINAL RECEBIDO!")
         logger.info("Jogo: {} | Liga: {}", teams, league)
         logger.info("Mercado: {} | Odd: {}", market_label, odd or "auto")
-        logger.info("URL: {}", url[:80] if url else "(sem URL)")
         logger.info("Stake: R${:.2f}", STAKE)
         logger.info("=" * 60)
 
         async with _bet_lock:
+          RETRY_TIMEOUT_S = 300          # 5 min — tempo máximo total de retry
+          _retry_start = time.time()
+          _attempt = 0
+          while (time.time() - _retry_start) < RETRY_TIMEOUT_S:
+            _attempt += 1
+            _elapsed = time.time() - _retry_start
             try:
-                # Fecha caderneta/receipt anterior antes de nova aposta
-                await page.evaluate("""() => {
-                    const done = document.querySelector('.bsf-ReceiptContent .bss-DefaultContent_Done, .bsf-ReceiptDoneButton, [class*="Receipt"] [class*="Done"]');
-                    if (done) { done.click(); return; }
-                    const remove = document.querySelector('.bsf-RemoveButton, .bss-DefaultContent_Remove, [class*="BetslipRemove"]');
-                    if (remove) { remove.click(); return; }
-                    const close = document.querySelector('.bsf-CloseButton, .bss-CloseButton, [class*="Betslip"][class*="Close"]');
-                    if (close) close.click();
-                }""")
-                await page.keyboard.press("Escape")
-                await asyncio.sleep(0.4)
-                logger.debug("Caderneta limpa, chamando bet...")
-
                 # Safety check antes de apostar
                 safety = get_safety()
                 check = safety.check(stake=STAKE, odd=odd or 0.0)
@@ -2809,61 +2904,179 @@ async def main() -> None:
 
                 effective_stake = check.adjusted_stake or STAKE
 
-                if url:
-                    bet_coro = fast_bet(page, url, effective_stake, odd, signal)
-                else:
-                    bet_coro = fast_bet_overview(page, effective_stake, odd, signal)
+                # Pausa keep-alive durante aposta (evita contention CDP)
+                page._bet_active = _bet_active
+                _bet_active.set()
 
-                # Timeout global de 20s para não travar infinitamente
-                result = await asyncio.wait_for(bet_coro, timeout=20)
+                if _attempt > 1:
+                    logger.info("RETRY #{} ({:.0f}s/{:.0f}s) — tentando novamente...", _attempt, _elapsed, RETRY_TIMEOUT_S)
 
-                if result["status"] == "accepted":
+                # ── Aposta via UIBetPlacer (CDP trusted events) ──
+                bet_result = await asyncio.wait_for(
+                    ui.place_bet_by_signal(
+                        signal=signal,
+                        stake=effective_stake,
+                        skip_if_remembered=bool(warmup_ok),
+                        max_odd_drop=MAX_ODD_DROP,
+                    ),
+                    timeout=25,
+                )
+
+                if bet_result.success:
                     bet_count += 1
-                    logger.info("APOSTA #{} ACEITA! Odd {:.2f} em {:.1f}s", bet_count, result['odd'], result['time'])
-                    # Registra perda provisória (stake) — será ajustado com resultado real
+                    logger.info(
+                        "APOSTA #{} ACEITA! sr=0 receipt={} odd={} (tentativa {} em {:.0f}s)",
+                        bet_count, bet_result.bet_receipt, bet_result.odds, _attempt, _elapsed,
+                    )
                     safety.record_result(-effective_stake)
-                elif result["status"] == "timeout":
-                    logger.warning("TIMEOUT: {}", result['msg'])
-                else:
-                    logger.error("ERRO: {}", result['msg'])
 
-                # Fecha caderneta/receipt para liberar a tela para próxima aposta
-                await page.evaluate("""() => {
-                    const done = document.querySelector('.bsf-ReceiptContent .bss-DefaultContent_Done, .bsf-ReceiptDoneButton, [class*="Receipt"] [class*="Done"]');
-                    if (done) { done.click(); return; }
-                    const remove = document.querySelector('.bsf-RemoveButton, .bss-DefaultContent_Remove, [class*="BetslipRemove"]');
-                    if (remove) { remove.click(); return; }
-                    const close = document.querySelector('.bsf-CloseButton, .bss-CloseButton, [class*="Betslip"][class*="Close"]');
-                    if (close) close.click();
-                }""")
-                await dismiss_popups(page)
-                # _hide_browser_offscreen()  # DESATIVADO para debug visual
+                    # ── Reload obrigatório após "Aposta Feita" ──
+                    _bet_active.clear()
+                    logger.info("Aposta aceita — fechando caderneta e recarregando página...")
+                    try:
+                        # Fecha receipt/betslip antes do reload
+                        try:
+                            await ui.close_betslip()
+                        except Exception:
+                            pass
+                        # Desseleciona odds ativas
+                        try:
+                            await ui.deselect_odds()
+                        except Exception:
+                            pass
+                        await page.keyboard.press("Escape")
+                        await asyncio.sleep(0.3)
 
-            except asyncio.TimeoutError:
-                logger.error("TIMEOUT GLOBAL (20s) — aposta travou, resetando caderneta")
+                        # Remove qualquer betslip/receipt do DOM antes do reload
+                        await page.evaluate("""() => {
+                            const sels = [
+                                '[class*="Receipt"]',
+                                '[class*="BetslipContainer"]',
+                                '[class*="bs-"]',
+                                '[class*="bss-"]',
+                                '[class*="bsf-"]',
+                            ];
+                            for (const s of sels) {
+                                document.querySelectorAll(s).forEach(el => {
+                                    if (el.getBoundingClientRect().height > 20) el.remove();
+                                });
+                            }
+                        }""")
+
+                        await page.goto(
+                            "https://www.bet365.bet.br/#/IP/FAV/",
+                            wait_until="domcontentloaded",
+                            timeout=20000,
+                        )
+                        await asyncio.sleep(3)
+                        await ui.dismiss_overlays()
+
+                        # Fecha betslip se reabriu após reload
+                        try:
+                            await ui.close_betslip()
+                        except Exception:
+                            pass
+
+                        # Limpa betslip residual via clean_betslip
+                        try:
+                            await ui.clean_betslip()
+                        except Exception:
+                            pass
+
+                        # Garante que estamos em /IP/FAV/ (deselect_odds pode ter navegado fora)
+                        current_url = page.url or ""
+                        if "#/IP/FAV" not in current_url:
+                            logger.warning("Pós-cleanup: URL não é FAV ({}) — re-navegando", current_url[:80])
+                            await page.evaluate("window.location.hash = '#/IP/FAV/'")
+                            await asyncio.sleep(2)
+
+                        await page.evaluate(_SCROLL_TOP_JS)
+                        logger.info("Página recarregada + caderneta fechada — pronta para próxima aposta")
+                    except Exception as reload_err:
+                        logger.warning("Reload falhou: {} — fallback hash nav", reload_err)
+                        try:
+                            await page.evaluate("window.location.hash = '#/IP'")
+                            await asyncio.sleep(1.0)
+                            await page.evaluate("window.location.hash = '#/IP/FAV/'")
+                            await asyncio.sleep(2)
+                            await page.evaluate(_SCROLL_TOP_JS)
+                        except Exception:
+                            pass
+                    break  # Aposta aceita — sai do retry loop
+
+                # ── Aposta FALHOU — preparar retry ──
+                _bet_active.clear()
+                fail_reason = bet_result.error or f"sr={bet_result.sr} cs={bet_result.cs}"
+
+                # Determina tempo de espera: odd fora de range → espera mais (odds podem voltar)
+                _is_odd_issue = "desvalorizada" in (bet_result.error or "").lower()
+                _is_player_missing = "não encontrad" in (bet_result.error or "").lower()
+                _wait_s = 8 if _is_odd_issue else (5 if _is_player_missing else 2)
+
+                logger.warning(
+                    "Tentativa {} FALHOU ({:.0f}s): {} — retry em {}s...",
+                    _attempt, _elapsed, fail_reason, _wait_s,
+                )
+
+                # Reset leve — limpa betslip e volta para FAV
                 try:
-                    # Escape múltiplo para fechar qualquer overlay/betslip
+                    await ui.close_betslip()
+                except Exception:
+                    pass
+                try:
                     for _ in range(3):
                         await page.keyboard.press("Escape")
-                        await asyncio.sleep(0.15)
-                    await page.evaluate("""() => {
-                        const done = document.querySelector('.bsf-ReceiptContent .bss-DefaultContent_Done, .bsf-ReceiptDoneButton, [class*="Receipt"] [class*="Done"]');
-                        if (done) { done.click(); return; }
-                        const remove = document.querySelector('.bsf-RemoveButton, .bss-DefaultContent_Remove, [class*="BetslipRemove"]');
-                        if (remove) { remove.click(); return; }
-                        const close = document.querySelector('.bsf-CloseButton, .bss-CloseButton, [class*="Betslip"][class*="Close"]');
-                        if (close) close.click();
-                    }""")
-                    await asyncio.sleep(0.3)
+                        await asyncio.sleep(0.2)
+                    await page.evaluate("window.location.hash = '#/IP'")
+                    await asyncio.sleep(1.0)
+                    await page.evaluate("window.location.hash = '#/IP/FAV/'")
+                    await asyncio.sleep(2)
+                    await page.evaluate(_SCROLL_TOP_JS)
+                    await ui.dismiss_overlays()
                 except Exception:
                     pass
 
+                ui._cache_ts = 0.0
+                await asyncio.sleep(_wait_s)
+                continue
+
             except asyncio.TimeoutError:
-                pass
+                _bet_active.clear()
+                _elapsed = time.time() - _retry_start
+                logger.error("TIMEOUT GLOBAL (25s) tentativa {} ({:.0f}s)", _attempt, _elapsed)
+                try:
+                    for _ in range(3):
+                        await page.keyboard.press("Escape")
+                        await asyncio.sleep(0.2)
+                    await page.evaluate("window.location.hash = '#/IP'")
+                    await asyncio.sleep(1.0)
+                    await page.evaluate("window.location.hash = '#/IP/FAV/'")
+                    await asyncio.sleep(1.5)
+                    await page.evaluate(_SCROLL_TOP_JS)
+                    await ui.dismiss_overlays()
+                except Exception:
+                    pass
+                ui._cache_ts = 0.0
+                await asyncio.sleep(2)
+                continue
+
             except Exception as e:
-                logger.error("Exceção no fast_bet: {}", e, exc_info=True)
-            finally:
-                pass  # _hide_browser_offscreen() — DESATIVADO para debug visual
+                _bet_active.clear()
+                _elapsed = time.time() - _retry_start
+                logger.error("Exceção tentativa {} ({:.0f}s): {}", _attempt, _elapsed, e, exc_info=True)
+                try:
+                    await page.evaluate("window.location.hash = '#/IP/FAV/'")
+                    await asyncio.sleep(1.5)
+                    await page.evaluate(_SCROLL_TOP_JS)
+                except Exception:
+                    pass
+                ui._cache_ts = 0.0
+                await asyncio.sleep(2)
+                continue
+
+          else:
+              # while expirou sem break (aposta nunca foi aceita)
+              logger.error("RETRY EXPIROU após {:.0f}s ({} tentativas) para: {} {} @{}", time.time() - _retry_start, _attempt, market_label, teams, odd)
 
         logger.info("Ouvindo sinais... (apostas: {})", bet_count)
 
@@ -2884,7 +3097,7 @@ async def main() -> None:
     # ─── Loop principal com re-login automático ──────────────────────────
     async def _re_login_loop():
         """Monitora logout e refaz o fluxo completo."""
-        nonlocal browser, context, page, engine, keepalive_task
+        nonlocal browser, context, page, engine, keepalive_task, warmup_ok, ui, cm
 
         while True:
             # Espera sinal de logout ou desconexão
@@ -2900,18 +3113,17 @@ async def main() -> None:
 
             # Tenta re-inicializar na mesma page
             try:
-                ok = await full_session_init(browser, context, page, engine)
-                if ok:
+                warmup_ok = await full_session_init(browser, context, page, engine)
+                if warmup_ok is not None:
+                    ui = UIBetPlacer(page)
                     logger.info("RE-LOGIN: Sucesso! Retomando operação.")
-                    # Re-instala Etapa 2 (interceptor + harvester refresh)
+                    # Re-instala Etapa 2 (harvester only — interceptor OFF)
                     try:
                         await harvester.full_extract(page)
-                        if not interceptor._installed:
-                            await interceptor.install()
                     except Exception as e2:
                         logger.warning("RE-LOGIN: Etapa 2 re-setup parcial: {}", e2)
                     keepalive_task = asyncio.create_task(
-                        keep_current_page_alive(page, on_logout=on_logout_detected, engine=engine)
+                        keep_current_page_alive(page, on_logout=on_logout_detected, engine=engine, ui=ui)
                     )
                     continue
             except Exception as e:
@@ -2920,35 +3132,34 @@ async def main() -> None:
             # Se falhou, fecha tudo e reabre o browser
             try:
                 await save_cookies(context)
-                await browser.close()
             except Exception:
                 pass
+            await _close_browser(cm)
 
             logger.info("RE-LOGIN: Reabrindo browser...")
-            browser, context, page, engine = await setup_browser()
+            browser, context, page, engine, cm = await setup_browser()
             if not page:
                 logger.error("RE-LOGIN: Falha ao reabrir browser! Encerrando.")
                 return
 
-            ok = await full_session_init(browser, context, page, engine)
-            if not ok:
+            warmup_ok = await full_session_init(browser, context, page, engine)
+            if warmup_ok is None:
                 logger.error("RE-LOGIN: Não conseguiu logar. Execute manual_login.py.")
                 return
 
-            # Re-instala Etapa 2 no novo browser
+            ui = UIBetPlacer(page)
+
+            # Re-instala Etapa 2 no novo browser (interceptor OFF — DOM puro)
             try:
-                interceptor._page = page
-                interceptor._installed = False
                 harvester._sync_term_listener_installed = False
                 await harvester.full_extract(page)
                 harvester.start_sync_term_listener(page)
                 await harvester.start_auto_refresh(page, interval=120)
-                await interceptor.install()
             except Exception as e2:
                 logger.warning("RE-LOGIN: Etapa 2 re-setup parcial: {}", e2)
 
             keepalive_task = asyncio.create_task(
-                keep_current_page_alive(page, on_logout=on_logout_detected, engine=engine)
+                keep_current_page_alive(page, on_logout=on_logout_detected, engine=engine, ui=ui)
             )
             logger.info("RE-LOGIN: Browser reaberto e logado. Retomando operação.")
 
@@ -2960,16 +3171,17 @@ async def main() -> None:
     except KeyboardInterrupt:
         print("\n👋 Encerrando...")
     finally:
+        _spectator_running = False
+        spectator_task.cancel()
+        if _spectator_server:
+            _spectator_server.shutdown()
         relogin_task.cancel()
         keepalive_task.cancel()
         try:
             await save_cookies(context)
         except Exception:
             pass
-        try:
-            await browser.close()
-        except Exception:
-            pass
+        await _close_browser(cm)
         try:
             await client.disconnect()
         except Exception:

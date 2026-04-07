@@ -5,7 +5,21 @@ import { MethodsService } from "./methods.service";
 const router = Router();
 const service = new MethodsService();
 const ALLOWED_CONFRONTATION_LEAGUES = new Set(["GT LEAGUE", "8MIN BATTLE", "6MIN VOLTA"] as const);
-const ALLOWED_CONFRONTATION_METHODS = new Set(["T+", "E", "(2E)", "(2D)", "(2D+)", "(3D)", "(3D+)", "(4D)", "(4D+)"] as const);
+const ALLOWED_CONFRONTATION_METHODS = new Set([
+  "T+",
+  "E",
+  "(2E)",
+  "(2D)",
+  "(2D+)",
+  "(3D)",
+  "(3D+)",
+  "(4D)",
+  "(4D+)",
+  "HC-2",
+  "HC-3",
+  "HC-4",
+  "HC-5",
+] as const);
 const ALLOWED_CONFRONTATION_SERIES = new Set(["A", "B", "C", "D", "E", "F", "G"] as const);
 const ALLOWED_CONFRONTATION_DAYS = new Set([7, 15, 21, 30, 45, 60] as const);
 
@@ -71,7 +85,20 @@ router.get("/confrontations", async (request, response, next) => {
     response.json(
       await service.getConfrontationMethods(
         rawLeagueType as "GT LEAGUE" | "8MIN BATTLE" | "6MIN VOLTA",
-        rawMethodCode as "T+" | "E" | "(2E)" | "(2D)" | "(2D+)" | "(3D)" | "(3D+)" | "(4D)" | "(4D+)",
+        rawMethodCode as
+          | "T+"
+          | "E"
+          | "(2E)"
+          | "(2D)"
+          | "(2D+)"
+          | "(3D)"
+          | "(3D+)"
+          | "(4D)"
+          | "(4D+)"
+          | "HC-2"
+          | "HC-3"
+          | "HC-4"
+          | "HC-5",
         {
           series: rawSeries as "A" | "B" | "C" | "D" | "E" | "F" | "G" | undefined,
           includeHistory,
@@ -93,6 +120,11 @@ router.get("/future-confrontations", async (request, response, next) => {
     const rawDays = typeof request.query.days === "string" ? Number(request.query.days) : undefined;
     const rawApxMin = typeof request.query.apxMin === "string" ? Number(request.query.apxMin) : undefined;
     const rawMinOccurrences = typeof request.query.minOccurrences === "string" ? Number(request.query.minOccurrences) : undefined;
+    const includePlayerStats =
+      request.query.includePlayerStats === undefined
+        ? true
+        : request.query.includePlayerStats === "1" ||
+          request.query.includePlayerStats === "true";
 
     if (!ALLOWED_CONFRONTATION_LEAGUES.has(rawLeagueType as (typeof ALLOWED_CONFRONTATION_LEAGUES extends Set<infer T> ? T : never))) {
       response.status(400).json({ message: "leagueType invalida" });
@@ -135,11 +167,26 @@ router.get("/future-confrontations", async (request, response, next) => {
 
     response.json(
       await service.getFutureConfrontationMethods(rawLeagueType as "GT LEAGUE" | "8MIN BATTLE" | "6MIN VOLTA", {
-        methodCode: rawMethodCode as "T+" | "E" | "(2E)" | "(2D)" | "(2D+)" | "(3D)" | "(3D+)" | "(4D)" | "(4D+)" | undefined,
+        methodCode: rawMethodCode as
+          | "T+"
+          | "E"
+          | "(2E)"
+          | "(2D)"
+          | "(2D+)"
+          | "(3D)"
+          | "(3D+)"
+          | "(4D)"
+          | "(4D+)"
+          | "HC-2"
+          | "HC-3"
+          | "HC-4"
+          | "HC-5"
+          | undefined,
         series: rawSeries as "A" | "B" | "C" | "D" | "E" | "F" | "G" | undefined,
         days: rawDays,
         apxMin: rawApxMin,
         minOccurrences: rawMinOccurrences,
+        includePlayerStats,
       }),
     );
   } catch (error) {

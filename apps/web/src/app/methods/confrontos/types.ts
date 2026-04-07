@@ -1,7 +1,20 @@
 export type ResultCode = "W" | "D" | "L" | "E";
 export type LeagueQueryValue = "gtleague" | "8minbattle" | "6minvolta";
 export type LeagueApiValue = "GT LEAGUE" | "8MIN BATTLE" | "6MIN VOLTA";
-export type MethodCode = "T+" | "E" | "(2E)" | "(2D)" | "(2D+)" | "(3D)" | "(3D+)" | "(4D)" | "(4D+)";
+export type MethodCode =
+  | "T+"
+  | "E"
+  | "(2E)"
+  | "(2D)"
+  | "(2D+)"
+  | "(3D)"
+  | "(3D+)"
+  | "(4D)"
+  | "(4D+)"
+  | "HC-2"
+  | "HC-3"
+  | "HC-4"
+  | "HC-5";
 export type SeriesCode = "A" | "B" | "C" | "D" | "E" | "F" | "G";
 
 export type ConfrontationDayHistoryItem = {

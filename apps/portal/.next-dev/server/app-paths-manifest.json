@@ -1,0 +1,8 @@
+{
+  "/esoccer/gt-league/disparidade/page": "app/esoccer/gt-league/disparidade/page.js",
+  "/esoccer/gt-league/metodos/page": "app/esoccer/gt-league/metodos/page.js",
+  "/account/profile/page": "app/account/profile/page.js",
+  "/ao-vivo/page": "app/ao-vivo/page.js",
+  "/inicio/page": "app/inicio/page.js",
+  "/page": "app/page.js"
+}

@@ -14,6 +14,7 @@
     "typecheck": "turbo run typecheck",
     "dev:web": "npm run dev -w @sheva/web",
     "dev:web:3004": "npm run dev -w @sheva/web",
+    "dev:portal": "npm run dev -w @sheva/portal",
     "dev:api": "npm run dev -w @sheva/api",
     "dev:basket": "npm run dev:basket -w @sheva/api",
     "dev:api:basket": "npm run dev:basket -w @sheva/api",
@@ -21,7 +22,9 @@
     "prisma:pull": "npm run prisma:pull -w @sheva/api",
     "prisma:generate": "npm run prisma:generate -w @sheva/api",
     "prisma:migrate": "npm run prisma:migrate -w @sheva/api",
-    "prisma:seed": "npm run prisma:seed -w @sheva/api"
+    "prisma:seed": "npm run prisma:seed -w @sheva/api",
+    "start:api": "npm run start -w @sheva/api",
+    "start:portal": "npm run start -w @sheva/portal"
   },
   "devDependencies": {
     "turbo": "^2.5.0",

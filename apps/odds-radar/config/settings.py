@@ -32,7 +32,7 @@ class BrowserSettings:
     proxy_password: str = field(default_factory=lambda: _str("PROXY_PASSWORD"))
     humanize: bool = field(default_factory=lambda: _bool("BROWSER_HUMANIZE", True))
     page_timeout_ms: int = field(default_factory=lambda: _int("PAGE_TIMEOUT_MS", 60_000))
-    viewport_width: int = field(default_factory=lambda: _int("VIEWPORT_WIDTH", 1366))
+    viewport_width: int = field(default_factory=lambda: _int("VIEWPORT_WIDTH", 1920))
     viewport_height: int = field(default_factory=lambda: _int("VIEWPORT_HEIGHT", 1080))
     user_data_dir: str = field(
         default_factory=lambda: _str(
@@ -108,7 +108,7 @@ class Settings:
     log_level: str = field(default_factory=lambda: _str("LOG_LEVEL", "INFO"))
     debug: bool = field(default_factory=lambda: _bool("DEBUG", False))
     sheva_api_url: str = field(
-        default_factory=lambda: _str("SHEVA_API_URL", "http://localhost:4003")
+        default_factory=lambda: _str("SHEVA_API_URL", "http://localhost:4013")
     )
 
 

@@ -1,0 +1,30 @@
+# ─── Python ──────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+dist/
+
+# ─── Environment / Secrets ───────────────────────────────
+.env
+!.env.example
+
+# ─── Browser / Sessions ─────────────────────────────────
+.browser_data/
+*.session
+*.session-journal
+
+# ─── Logs / Temp ─────────────────────────────────────────
+logs/
+tmp/
+*.log
+*.out
+
+# ─── Screenshots / Debug ────────────────────────────────
+*.png
+*.jpg
+
+# ─── Data ────────────────────────────────────────────────
+*.csv

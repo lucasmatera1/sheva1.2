@@ -1,0 +1,64 @@
+{
+  "node": {
+    "00271bdc3d8db202ff74601197379f09649929ab65": {
+      "workers": {
+        "app/esoccer/gt-league/page": {
+          "moduleId": "(rsc)/../../node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22D%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%2C%5B%7B%22id%22%3A%2200271bdc3d8db202ff74601197379f09649929ab65%22%2C%22exportedName%22%3A%22logoutAction%22%2C%22filename%22%3A%22..%2FD%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%7D%5D%5D%5D&__client_imported__=!",
+          "async": false
+        },
+        "app/page": {
+          "moduleId": "(rsc)/../../node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22D%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%2C%5B%7B%22id%22%3A%2200271bdc3d8db202ff74601197379f09649929ab65%22%2C%22exportedName%22%3A%22logoutAction%22%2C%22filename%22%3A%22..%2FD%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%7D%5D%5D%5D&__client_imported__=!",
+          "async": false
+        },
+        "app/esoccer/gt-league/panorama/page": {
+          "moduleId": "(rsc)/../../node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22D%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%2C%5B%7B%22id%22%3A%2200271bdc3d8db202ff74601197379f09649929ab65%22%2C%22exportedName%22%3A%22logoutAction%22%2C%22filename%22%3A%22..%2FD%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%7D%5D%5D%5D&__client_imported__=!",
+          "async": false
+        },
+        "app/ao-vivo/page": {
+          "moduleId": "(rsc)/../../node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22D%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%2C%5B%7B%22id%22%3A%2200271bdc3d8db202ff74601197379f09649929ab65%22%2C%22exportedName%22%3A%22logoutAction%22%2C%22filename%22%3A%22..%2FD%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%7D%5D%5D%5D&__client_imported__=!",
+          "async": false
+        },
+        "app/esoccer/[league]/page": {
+          "moduleId": "(rsc)/../../node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22D%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%2C%5B%7B%22id%22%3A%2200271bdc3d8db202ff74601197379f09649929ab65%22%2C%22exportedName%22%3A%22logoutAction%22%2C%22filename%22%3A%22..%2FD%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%7D%5D%5D%5D&__client_imported__=!",
+          "async": false
+        },
+        "app/esoccer/gt-league/disparidade/page": {
+          "moduleId": "(rsc)/../../node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22D%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%2C%5B%7B%22id%22%3A%2200271bdc3d8db202ff74601197379f09649929ab65%22%2C%22exportedName%22%3A%22logoutAction%22%2C%22filename%22%3A%22..%2FD%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%7D%5D%5D%5D&__client_imported__=!",
+          "async": false
+        },
+        "app/inicio/page": {
+          "moduleId": "(rsc)/../../node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22D%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%2C%5B%7B%22id%22%3A%2200271bdc3d8db202ff74601197379f09649929ab65%22%2C%22exportedName%22%3A%22logoutAction%22%2C%22filename%22%3A%22..%2FD%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%7D%5D%5D%5D&__client_imported__=!",
+          "async": false
+        },
+        "app/esoccer/gt-league/raio-x/page": {
+          "moduleId": "(rsc)/../../node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22D%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%2C%5B%7B%22id%22%3A%2200271bdc3d8db202ff74601197379f09649929ab65%22%2C%22exportedName%22%3A%22logoutAction%22%2C%22filename%22%3A%22..%2FD%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%7D%5D%5D%5D&__client_imported__=!",
+          "async": false
+        },
+        "app/esoccer/gt-league/metodos/page": {
+          "moduleId": "(rsc)/../../node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22D%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%2C%5B%7B%22id%22%3A%2200271bdc3d8db202ff74601197379f09649929ab65%22%2C%22exportedName%22%3A%22logoutAction%22%2C%22filename%22%3A%22..%2FD%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%7D%5D%5D%5D&__client_imported__=!",
+          "async": false
+        },
+        "app/account/profile/page": {
+          "moduleId": "(rsc)/../../node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22D%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%2C%5B%7B%22id%22%3A%2200271bdc3d8db202ff74601197379f09649929ab65%22%2C%22exportedName%22%3A%22logoutAction%22%2C%22filename%22%3A%22..%2FD%3A%5C%5CSheva%5C%5Capps%5C%5Cportal%5C%5Csrc%5C%5Capp%5C%5Cactions.ts%22%7D%5D%5D%5D&__client_imported__=!",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/esoccer/gt-league/page": "rsc",
+        "app/page": "rsc",
+        "app/esoccer/gt-league/panorama/page": "rsc",
+        "app/ao-vivo/page": "rsc",
+        "app/esoccer/[league]/page": "rsc",
+        "app/esoccer/gt-league/disparidade/page": "rsc",
+        "app/inicio/page": "rsc",
+        "app/esoccer/gt-league/raio-x/page": "rsc",
+        "app/esoccer/gt-league/metodos/page": "rsc",
+        "app/account/profile/page": "rsc"
+      },
+      "filename": "../D:\\Sheva\\apps\\portal\\src\\app\\actions.ts",
+      "exportedName": "logoutAction"
+    }
+  },
+  "edge": {},
+  "encryptionKey": "xiOookFi3+0LjJ0PLWLv1oh7RlHJP8N3VzNi7yhWlac="
+}

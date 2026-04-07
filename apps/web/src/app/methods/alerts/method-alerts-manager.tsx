@@ -1,18 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { SurfaceCard } from "../../../components/shell/app-shell";
 import { apiUrl } from "../../../lib/api";
-import { DashboardPlayerTable } from "../../dashboard/dashboard-player-table";
 import { formatRelativeKickoff, getFuturePriorityMeta } from "../future/priority";
 
 const LEAGUE_OPTIONS = ["GT LEAGUE", "8MIN BATTLE", "6MIN VOLTA"] as const;
-const METHOD_OPTIONS = ["T+", "E", "(2E)", "(2D)", "(2D+)", "(3D)", "(3D+)", "(4D)", "(4D+)", "4D Jogador", "4W Jogador", "Fav T1", "Fav T2", "Fav T3"] as const;
+const METHOD_OPTIONS = ["T+", "E", "(2E)", "(2D)", "(2D+)", "(3D)", "(3D+)", "(4D)", "(4D+)", "HC-2", "HC-3", "HC-4", "HC-5", "4D Jogador", "4W Jogador", "Fav T1", "Fav T2", "Fav T3"] as const;
 const SERIES_OPTIONS = ["A", "B", "C", "D", "E", "F", "G"] as const;
 const DAYS_OPTIONS = [7, 15, 21, 30, 45, 60] as const;
 const TRANSPORT_OPTIONS = ["webhook", "telegram"] as const;
-const ALERTS_MAIN_TABS = ["operations", "backup"] as const;
-const SIDE_PANEL_TABS = ["dispatches", "webhook"] as const;
+const ALERTS_MAIN_TABS = ["editor", "rules", "dispatches", "webhook", "backup"] as const;
 const CURRENT_J_LEAGUES = ["GT LEAGUE", "8MIN BATTLE", "6MIN VOLTA"] as const;
 const TELEGRAM_CHAT_IDS_STORAGE_KEY = "sheva.alerts.telegramChatIds";
 const ALERTS_OVERVIEW_CACHE_STORAGE_KEY = "sheva.alerts.overviewCache";
@@ -327,12 +326,8 @@ export function MethodAlertsManager() {
   const [backupText, setBackupText] = useState("");
   const [backupFileName, setBackupFileName] = useState<string | null>(null);
   const [savedTelegramChatIds, setSavedTelegramChatIds] = useState("");
-  const [selectedCurrentJLeague, setSelectedCurrentJLeague] = useState<(typeof CURRENT_J_LEAGUES)[number]>("GT LEAGUE");
-  const [currentJSnapshot, setCurrentJSnapshot] = useState<CurrentJSnapshot | null>(null);
-  const [expandedCurrentJGroups, setExpandedCurrentJGroups] = useState<Record<string, boolean>>({});
   const [currentSignalsByRule, setCurrentSignalsByRule] = useState<Record<string, CurrentSignalsResult>>({});
-  const [activeMainTab, setActiveMainTab] = useState<(typeof ALERTS_MAIN_TABS)[number]>("operations");
-  const [activeSidePanelTab, setActiveSidePanelTab] = useState<(typeof SIDE_PANEL_TABS)[number]>("dispatches");
+  const [activeMainTab, setActiveMainTab] = useState<(typeof ALERTS_MAIN_TABS)[number]>("rules");
   const [form, setForm] = useState(() => createInitialForm());
   const [formPlayerOptions, setFormPlayerOptions] = useState<string[]>([]);
   const [isLoadingFormPlayers, setIsLoadingFormPlayers] = useState(false);
@@ -357,13 +352,6 @@ export function MethodAlertsManager() {
 
     async function loadFormPlayers() {
       setFormPlayersError(null);
-
-      if (currentJSnapshot?.leagueType === form.leagueType) {
-        setFormPlayerOptions(getCurrentJPlayerNames(currentJSnapshot));
-        setIsLoadingFormPlayers(false);
-        return;
-      }
-
       setIsLoadingFormPlayers(true);
 
       const response = await requestJson<CurrentJSnapshot>(`/dashboard/current-j?league=${encodeURIComponent(form.leagueType)}`);
@@ -387,7 +375,7 @@ export function MethodAlertsManager() {
     return () => {
       isCancelled = true;
     };
-  }, [form.leagueType, currentJSnapshot]);
+  }, [form.leagueType]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -462,16 +450,6 @@ export function MethodAlertsManager() {
       }
     };
   }, []);
-
-  useEffect(() => {
-    startTransition(() => {
-      void refreshCurrentJSnapshot(selectedCurrentJLeague);
-    });
-  }, [selectedCurrentJLeague]);
-
-  useEffect(() => {
-    setExpandedCurrentJGroups({});
-  }, [selectedCurrentJLeague, currentJSnapshot?.generatedAt]);
 
   useEffect(() => {
     const storedValue = readSavedTelegramChatIds();
@@ -616,16 +594,20 @@ export function MethodAlertsManager() {
     }
   }
 
-  async function refreshCurrentJSnapshot(leagueType: (typeof CURRENT_J_LEAGUES)[number]) {
-    const response = await requestJson<CurrentJSnapshot>(`/dashboard/current-j?league=${encodeURIComponent(leagueType)}`);
+  function handleOpenNewRule() {
+    resetForm(form.webhookUrl);
+    setStatusMessage(null);
+    setErrorMessage(null);
+    setActiveMainTab("editor");
 
-    if (!response.ok) {
-      setCurrentJSnapshot(null);
-      setErrorMessage(response.message);
-      return;
-    }
+    window.requestAnimationFrame(() => {
+      ruleFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
-    setCurrentJSnapshot(response.data);
+      window.setTimeout(() => {
+        apxMinInputRef.current?.focus();
+        apxMinInputRef.current?.select();
+      }, 250);
+    });
   }
 
   async function handleSubmitRule(event: React.FormEvent<HTMLFormElement>) {
@@ -665,11 +647,13 @@ export function MethodAlertsManager() {
     }
 
     resetForm(response.data.webhookUrl ?? form.webhookUrl);
+    setActiveMainTab("rules");
     setStatusMessage(editingRuleId ? `Regra atualizada: ${response.data.name}` : `Regra criada: ${response.data.name}`);
     await refreshData();
   }
 
   function handleEditRule(rule: AlertRule) {
+    setActiveMainTab("editor");
     setEditingRuleId(rule.id);
     setStatusMessage(null);
     setErrorMessage(null);
@@ -702,6 +686,7 @@ export function MethodAlertsManager() {
     resetForm(form.webhookUrl);
     setStatusMessage(null);
     setErrorMessage(null);
+    setActiveMainTab("rules");
   }
 
   function handleSaveTelegramChatIds() {
@@ -1046,21 +1031,7 @@ export function MethodAlertsManager() {
     });
   }
 
-  const currentJGroups = currentJSnapshot ? groupCurrentJFixtures(currentJSnapshot.fixtures, currentJSnapshot.leagueType) : [];
-  const hasCollapsedCurrentJGroups = currentJGroups.some((group) => !expandedCurrentJGroups[group.label]);
-  const hasExpandedCurrentJGroups = currentJGroups.some((group) => expandedCurrentJGroups[group.label]);
   const selectedPlayerMissingFromOptions = Boolean(form.playerName.trim()) && !formPlayerOptions.includes(form.playerName.trim());
-
-  function handleToggleAllCurrentJGroups(expand: boolean) {
-    setExpandedCurrentJGroups(buildExpandedCurrentJGroupsState(currentJGroups, expand));
-  }
-
-  function handleToggleCurrentJGroup(groupLabel: string) {
-    setExpandedCurrentJGroups((current) => ({
-      ...current,
-      [groupLabel]: !current[groupLabel],
-    }));
-  }
 
   return (
     <div className="grid gap-5">
@@ -1123,26 +1094,87 @@ export function MethodAlertsManager() {
       ) : null}
 
       <SurfaceCard>
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => setActiveMainTab("operations")}
-            className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold transition ${activeMainTab === "operations" ? "bg-[#20352e] text-white" : "border border-ink/10 bg-white text-ink hover:border-ink/20"}`}
-          >
-            Operacao
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMainTab("backup")}
-            className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold transition ${activeMainTab === "backup" ? "bg-[#20352e] text-white" : "border border-ink/10 bg-white text-ink hover:border-ink/20"}`}
-          >
-            Backup local
-          </button>
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-xs uppercase tracking-[0.2em] text-brand-strong">Painel</p>
+            <h2 className="mt-3 font-display text-3xl text-ink">Alertas de metodo</h2>
+            <p className="mt-3 text-sm leading-7 text-ink/68">Abra novas regras por botao, navegue por abas e use a pagina separada de metodos recentes para acompanhar o historico sem poluir a tela principal.</p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handleOpenNewRule}
+              className={`inline-flex rounded-full px-5 py-3 text-sm font-semibold transition ${activeMainTab === "editor" ? "bg-[#172821] text-white" : "bg-[#20352e] text-white hover:bg-[#172821]"}`}
+            >
+              {editingRuleId ? "Editar Regra" : "Nova Regra"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMainTab("rules")}
+              className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold transition ${activeMainTab === "rules" ? "bg-[#20352e] text-white" : "border border-ink/10 bg-white text-ink hover:border-ink/20"}`}
+            >
+              Regras cadastradas
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMainTab("dispatches")}
+              className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold transition ${activeMainTab === "dispatches" ? "bg-[#20352e] text-white" : "border border-ink/10 bg-white text-ink hover:border-ink/20"}`}
+            >
+              Disparos
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMainTab("webhook")}
+              className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold transition ${activeMainTab === "webhook" ? "bg-[#20352e] text-white" : "border border-ink/10 bg-white text-ink hover:border-ink/20"}`}
+            >
+              Webhook local
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMainTab("backup")}
+              className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold transition ${activeMainTab === "backup" ? "bg-[#20352e] text-white" : "border border-ink/10 bg-white text-ink hover:border-ink/20"}`}
+            >
+              Backup local
+            </button>
+            <button
+              type="button"
+              onClick={() => startTransition(() => void refreshData())}
+              className="inline-flex rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-ink/20"
+            >
+              {isPending ? "Atualizando..." : "Atualizar"}
+            </button>
+            <Link href="/alerts/pastmethods" className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 transition hover:bg-sky-100">
+              Metodos Recentes
+            </Link>
+          </div>
         </div>
       </SurfaceCard>
 
-      {activeMainTab === "operations" ? (
+      {statusMessage ? <div className="rounded-[1.15rem] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{statusMessage}</div> : null}
+      {errorMessage ? <div className="rounded-[1.15rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{errorMessage}</div> : null}
+      {runResult ? (
+        <SurfaceCard className="bg-[#f7f4ec]">
+          <p className="text-xs uppercase tracking-[0.18em] text-brand-strong">Ultimo dry-run</p>
+          <div className="mt-3 grid gap-3 text-sm text-ink/72 sm:grid-cols-4">
+            <p>Regras lidas: {runResult.totalRules}</p>
+            <p>Sinais: {runResult.totalSignals}</p>
+            <p>Despachos: {runResult.totalDispatched}</p>
+            <p>Horario: {formatDateTime(runResult.executedAt)}</p>
+          </div>
+          <div className="mt-4 space-y-2 text-sm text-ink/62">
+            {runResult.rules.map((item) => (
+              <p key={item.rule.id}>
+                {item.rule.name}: {item.matchedRows} confronto(s), {item.triggeredSignals} sinal(is), {item.dispatchedSignals} envio(s).
+              </p>
+            ))}
+          </div>
+        </SurfaceCard>
+      ) : null}
+
+      {activeMainTab !== "backup" ? (
       <>
+      {activeMainTab === "editor" ? (
       <SurfaceCard>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -1158,9 +1190,6 @@ export function MethodAlertsManager() {
             {isPending ? "Atualizando..." : "Atualizar"}
           </button>
         </div>
-
-        {statusMessage ? <div className="mt-5 rounded-[1.15rem] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{statusMessage}</div> : null}
-        {errorMessage ? <div className="mt-5 rounded-[1.15rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{errorMessage}</div> : null}
 
         <div ref={ruleFormRef}>
         <form className="mt-6 grid gap-4 md:grid-cols-2" onSubmit={handleSubmitRule}>
@@ -1220,7 +1249,7 @@ export function MethodAlertsManager() {
               className="rounded-[1rem] border border-ink/10 bg-white px-4 py-3 text-ink outline-none disabled:bg-sand/40 disabled:text-ink/35"
             >
               <option value="">{isLoadingFormPlayers ? "Carregando jogadores..." : "Todos os jogadores"}</option>
-              {selectedPlayerMissingFromOptions ? <option value={form.playerName}>{form.playerName} (fora do J atual)</option> : null}
+              {selectedPlayerMissingFromOptions ? <option value={form.playerName}>{form.playerName} (fora do recorte atual)</option> : null}
               {formPlayerOptions.map((name) => (
                 <option key={name} value={name}>
                   {name}
@@ -1310,165 +1339,10 @@ export function MethodAlertsManager() {
         </form>
         </div>
       </SurfaceCard>
-
-      <SurfaceCard>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-brand-strong">Janela atual</p>
-            <h2 className="mt-3 font-display text-3xl text-ink">Jogos do J atual</h2>
-            <p className="mt-3 text-sm leading-7 text-ink/68">Use esta janela para validar os confrontos ativos e a sequencia W / D / L antes de interpretar os disparos.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <select
-              value={selectedCurrentJLeague}
-              onChange={(event) => setSelectedCurrentJLeague(event.target.value as (typeof CURRENT_J_LEAGUES)[number])}
-              className="rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink outline-none"
-            >
-              {CURRENT_J_LEAGUES.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => startTransition(() => void refreshCurrentJSnapshot(selectedCurrentJLeague))}
-              className="inline-flex rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-ink/20"
-            >
-              Atualizar J atual
-            </button>
-          </div>
-        </div>
-
-        {currentJSnapshot ? (
-          <>
-            <div className="mt-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-              <div className="rounded-[1.2rem] border border-ink/10 bg-white p-5">
-                <p className="text-xs uppercase tracking-[0.16em] text-brand-strong">Recorte</p>
-                <h3 className="mt-2 text-xl font-semibold text-ink">
-                  {currentJSnapshot.currentWindow.usesOperationalDay ? `${currentJSnapshot.currentWindow.windowLabel} | ${currentJSnapshot.currentWindow.dayLabel}` : currentJSnapshot.currentWindow.dayLabel}
-                </h3>
-                <p className="mt-2 text-sm text-ink/62">{currentJSnapshot.currentWindow.rangeLabel}</p>
-                <p className="mt-3 text-sm leading-7 text-ink/68">{currentJSnapshot.currentWindow.description}</p>
-                {currentJSnapshot.warning ? (
-                  <div className="mt-4 rounded-[1rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                    {currentJSnapshot.warning}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <MetricCard label="Jogadores ativos" value={currentJSnapshot.totals.activePlayers} />
-                <MetricCard label="Jogos no J" value={currentJSnapshot.totals.totalGames} />
-                <MetricCard label="Jogos encerrados" value={currentJSnapshot.totals.currentWindowPlayedMatches} />
-                <MetricCard label="Fixtures futuras" value={currentJSnapshot.totals.currentWindowUpcomingFixtures} />
-              </div>
-            </div>
-
-            <div className="mt-6 rounded-[1.2rem] border border-ink/10 bg-white p-5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.16em] text-brand-strong">Confrontos</p>
-                  <h3 className="mt-2 text-xl font-semibold text-ink">Partidas mapeadas no J atual</h3>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleAllCurrentJGroups(true)}
-                    disabled={!hasCollapsedCurrentJGroups}
-                    className="inline-flex rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-ink/20 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Expandir todos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleAllCurrentJGroups(false)}
-                    disabled={!hasExpandedCurrentJGroups}
-                    className="inline-flex rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-ink/20 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Recolher todos
-                  </button>
-                  <p className="text-xs uppercase tracking-[0.14em] text-ink/48">{currentJSnapshot.fixtures.length} confronto(s)</p>
-                </div>
-              </div>
-
-              {currentJSnapshot.fixtures.length ? (
-                <div className="mt-4 overflow-hidden rounded-[0.95rem] border border-ink/10 bg-[#f8f4ea]">
-                  <div>
-                    {currentJGroups.map((group) => {
-                      const isExpanded = Boolean(expandedCurrentJGroups[group.label]);
-                      const baseMatch = group.matches[0];
-                      const seasonsLabel = group.matches.map((item) => item.seasonId ?? (item.isSynthetic ? "pendente" : "-")).join(", ");
-
-                      return (
-                        <div key={group.label} className="border-b border-ink/10 last:border-b-0">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleCurrentJGroup(group.label)}
-                            className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left transition hover:bg-white/35"
-                          >
-                            <div>
-                              <p className="font-semibold text-ink">{group.label}</p>
-                            </div>
-                            <div className="text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-strong">
-                              {isExpanded ? "Recolher" : "Expandir"}
-                            </div>
-                          </button>
-
-                          {isExpanded ? (
-                            <div className="border-t border-ink/10 bg-white/70 px-4 py-4">
-                              <div className="grid gap-2 text-sm text-ink/68 md:grid-cols-3 xl:grid-cols-4">
-                                <p>
-                                  <span className="font-medium text-ink">Horario base:</span> {baseMatch ? formatTime(baseMatch.playedAt) : "-"}
-                                </p>
-                                <p>
-                                  <span className="font-medium text-ink">Jogos:</span> {group.matches.length} jogo(s){group.expectedMatches ? ` de ${group.expectedMatches}` : ""}
-                                </p>
-                                <p className="xl:col-span-2">
-                                  <span className="font-medium text-ink">Seasons:</span> {seasonsLabel}
-                                </p>
-                                {baseMatch ? (
-                                  <p>
-                                    <span className="font-medium text-ink">Primeiro horario:</span> {formatDateTime(baseMatch.playedAt)}
-                                  </p>
-                                ) : null}
-                              </div>
-
-                              <div className="mt-4 space-y-2">
-                                {group.matches.map((fixture) => (
-                                  <div key={fixture.id} className={`flex flex-col gap-1 rounded-[0.9rem] border px-4 py-3 text-sm md:flex-row md:items-center md:justify-between ${fixture.isSynthetic ? "border-amber-200 bg-amber-50 text-amber-900" : "border-ink/10 bg-[#f8f4ea] text-ink/70"}`}>
-                                    <p className="font-medium text-ink">{fixture.homePlayer} x {fixture.awayPlayer}</p>
-                                    <p>{formatDateTime(fixture.playedAt)}</p>
-                                    <p>{fixture.isSynthetic ? "Slot esperado nao encontrado na base" : `Season: ${fixture.seasonId ?? "-"}`}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4 rounded-[1rem] border border-dashed border-ink/15 bg-[#f8f4ea] px-4 py-4 text-sm text-ink/58">
-                  Nenhum confronto retornado para esta janela agora.
-                </div>
-              )}
-            </div>
-
-            <div className="mt-6">
-              <DashboardPlayerTable players={currentJSnapshot.players} leagueType={currentJSnapshot.leagueType} />
-            </div>
-          </>
-        ) : (
-          <div className="mt-6 rounded-[1.2rem] border border-dashed border-ink/15 bg-white/45 px-5 py-8 text-sm text-ink/60">
-            Nao foi possivel carregar a janela do J atual agora.
-          </div>
-        )}
-      </SurfaceCard>
+      ) : null}
 
       <section className="grid gap-5">
+        {activeMainTab === "rules" ? (
         <SurfaceCard>
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -1642,46 +1516,10 @@ export function MethodAlertsManager() {
             </div>
           )}
 
-          {runResult ? (
-            <div className="mt-6 rounded-[1.3rem] border border-ink/10 bg-[#f7f4ec] p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-brand-strong">Ultimo dry-run</p>
-              <div className="mt-3 grid gap-3 text-sm text-ink/72 sm:grid-cols-4">
-                <p>Regras lidas: {runResult.totalRules}</p>
-                <p>Sinais: {runResult.totalSignals}</p>
-                <p>Despachos: {runResult.totalDispatched}</p>
-                <p>Horario: {formatDateTime(runResult.executedAt)}</p>
-              </div>
-              <div className="mt-4 space-y-2 text-sm text-ink/62">
-                {runResult.rules.map((item) => (
-                  <p key={item.rule.id}>
-                    {item.rule.name}: {item.matchedRows} confronto(s), {item.triggeredSignals} sinal(is), {item.dispatchedSignals} envio(s).
-                  </p>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </SurfaceCard>
+        ) : null}
 
-        <SurfaceCard>
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => setActiveSidePanelTab("dispatches")}
-              className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold transition ${activeSidePanelTab === "dispatches" ? "bg-[#20352e] text-white" : "border border-ink/10 bg-white text-ink hover:border-ink/20"}`}
-            >
-              Disparos
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSidePanelTab("webhook")}
-              className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold transition ${activeSidePanelTab === "webhook" ? "bg-[#20352e] text-white" : "border border-ink/10 bg-white text-ink hover:border-ink/20"}`}
-            >
-              Webhook local
-            </button>
-          </div>
-        </SurfaceCard>
-
-        {activeSidePanelTab === "webhook" ? (
+        {activeMainTab === "webhook" ? (
           <>
             <SurfaceCard>
               <div className="flex items-start justify-between gap-4">
@@ -1759,7 +1597,7 @@ export function MethodAlertsManager() {
           </>
         ) : null}
 
-        {activeSidePanelTab === "dispatches" ? (
+        {activeMainTab === "dispatches" ? (
           <SurfaceCard>
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -1767,9 +1605,12 @@ export function MethodAlertsManager() {
                 <h2 className="mt-3 font-display text-3xl text-ink">Ultimos disparos</h2>
                 <p className="mt-3 text-sm leading-7 text-ink/68">Cada card mostra o confronto disparado, a mensagem persistida e o retorno do transporte para validar o envio.</p>
               </div>
-              <div className="text-right">
+              <div className="flex flex-col items-end gap-2 text-right">
                 <p className="text-xs uppercase tracking-[0.16em] text-ink/48">{dispatches.length} registro(s)</p>
-                <p className="mt-2 text-xs text-ink/55">Atualizacao automatica a cada 60s</p>
+                <p className="text-xs text-ink/55">Atualizacao automatica a cada 60s</p>
+                <Link href="/alerts/pastmethods" className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 transition hover:bg-sky-100">
+                  Abrir pagina completa
+                </Link>
               </div>
             </div>
 
@@ -2085,12 +1926,6 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
 function getSignalSequencePillClass(result: string) {
   if (result === "W") {
     return "bg-[#20352e] text-white";
@@ -2141,90 +1976,6 @@ function formatBytes(value: number | null) {
   }
 
   return `${(value / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function groupCurrentJFixtures(fixtures: CurrentJSnapshot["fixtures"], leagueType: CurrentJSnapshot["leagueType"]) {
-  return Array.from(
-    fixtures
-      .slice()
-      .sort((left, right) => new Date(right.playedAt).getTime() - new Date(left.playedAt).getTime())
-      .reduce((map, fixture) => {
-        const pair = [fixture.homePlayer, fixture.awayPlayer].sort((left, right) => left.localeCompare(right, "pt-BR"));
-        const label = `${pair[0]} x ${pair[1]}`;
-        const current = map.get(label) ?? { label, matches: [] as Array<CurrentJSnapshot["fixtures"][number] & { isSynthetic?: boolean }>, expectedMatches: undefined as number | undefined };
-        current.matches.push(fixture);
-        map.set(label, current);
-        return map;
-      }, new Map<string, { label: string; matches: Array<CurrentJSnapshot["fixtures"][number] & { isSynthetic?: boolean }>; expectedMatches?: number }>())
-      .values(),
-  ).map((group) => {
-    if (leagueType !== "GT LEAGUE" || group.matches.length >= 6 || group.matches.length === 0) {
-      return {
-        ...group,
-        matches: group.matches.slice().sort((left, right) => new Date(left.playedAt).getTime() - new Date(right.playedAt).getTime()),
-      };
-    }
-
-    const firstMatchDate = new Date(group.matches[0].playedAt);
-    const expectedOffsetsInMinutes = [0, 75, 150, 240, 315, 390];
-    const toleranceMs = 10 * 60 * 1000;
-    const usedMatchIds = new Set<string>();
-    const filledMatches = expectedOffsetsInMinutes.map((offsetMinutes, index) => {
-      const expectedDate = new Date(firstMatchDate.getTime() + offsetMinutes * 60 * 1000);
-      const matchedFixture = group.matches.find((fixture) => {
-        if (usedMatchIds.has(fixture.id)) {
-          return false;
-        }
-
-        return Math.abs(new Date(fixture.playedAt).getTime() - expectedDate.getTime()) <= toleranceMs;
-      });
-
-      if (matchedFixture) {
-        usedMatchIds.add(matchedFixture.id);
-        return matchedFixture;
-      }
-
-      const fallbackSeason = group.matches[Math.min(index, group.matches.length - 1)]?.seasonId ?? group.matches[group.matches.length - 1]?.seasonId ?? null;
-      return {
-        id: `${group.label}-synthetic-${expectedDate.toISOString()}`,
-        playedAt: expectedDate.toISOString(),
-        homePlayer: index % 2 === 0 ? group.matches[0].homePlayer : group.matches[0].awayPlayer,
-        awayPlayer: index % 2 === 0 ? group.matches[0].awayPlayer : group.matches[0].homePlayer,
-        seasonId: fallbackSeason,
-        groupLabel: null,
-        isSynthetic: true,
-      };
-    });
-
-    return {
-      ...group,
-      matches: filledMatches,
-      expectedMatches: 6,
-    };
-  }).sort((left, right) => {
-    const leftBaseAt = left.matches[0] ? new Date(left.matches[0].playedAt).getTime() : 0;
-    const rightBaseAt = right.matches[0] ? new Date(right.matches[0].playedAt).getTime() : 0;
-    return rightBaseAt - leftBaseAt;
-  });
-}
-
-function buildExpandedCurrentJGroupsState(
-  groups: Array<{ label: string }>,
-  expand: boolean,
-) {
-  return groups.reduce<Record<string, boolean>>((accumulator, group) => {
-    accumulator[group.label] = expand;
-    return accumulator;
-  }, {});
-}
-
-function MetricCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-[1.1rem] border border-ink/10 bg-[#f8f4ea] px-4 py-4">
-      <p className="text-xs uppercase tracking-[0.14em] text-brand-strong">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-ink">{value.toLocaleString("pt-BR")}</p>
-    </div>
-  );
 }
 
 function parseDispatchPayload(value: string | null | undefined): AlertDispatchPayload | null {

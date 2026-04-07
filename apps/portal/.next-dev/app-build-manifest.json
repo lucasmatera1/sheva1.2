@@ -1,0 +1,75 @@
+{
+  "pages": {
+    "/api/gt-league/live-table/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/gt-league/live-table/route.js"
+    ],
+    "/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/layout.css",
+      "static/chunks/app/layout.js"
+    ],
+    "/esoccer/gt-league/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/esoccer/gt-league/page.js"
+    ],
+    "/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/page.js"
+    ],
+    "/esoccer/gt-league/panorama/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/esoccer/gt-league/panorama/page.js"
+    ],
+    "/ao-vivo/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/ao-vivo/page.js"
+    ],
+    "/api/ao-vivo/signals/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/ao-vivo/signals/route.js"
+    ],
+    "/esoccer/[league]/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/esoccer/[league]/page.js"
+    ],
+    "/esoccer/gt-league/disparidade/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/esoccer/gt-league/disparidade/page.js"
+    ],
+    "/api/disparidade/gt-pair/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/disparidade/gt-pair/route.js"
+    ],
+    "/inicio/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/inicio/page.js"
+    ],
+    "/esoccer/gt-league/raio-x/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/esoccer/gt-league/raio-x/page.js"
+    ],
+    "/esoccer/gt-league/metodos/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/esoccer/gt-league/metodos/page.js"
+    ],
+    "/account/profile/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/account/profile/page.js"
+    ]
+  }
+}

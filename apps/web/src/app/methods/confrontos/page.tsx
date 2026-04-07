@@ -13,7 +13,21 @@ const LEAGUE_OPTIONS: Array<{ queryValue: LeagueQueryValue; apiValue: LeagueApiV
   { queryValue: "6minvolta", apiValue: "6MIN VOLTA", label: "6min Volta" },
 ];
 
-const METHOD_OPTIONS: MethodCode[] = ["T+", "E", "(2E)", "(2D)", "(2D+)", "(3D)", "(3D+)", "(4D)", "(4D+)"];
+const METHOD_OPTIONS: MethodCode[] = [
+  "T+",
+  "E",
+  "(2E)",
+  "(2D)",
+  "(2D+)",
+  "(3D)",
+  "(3D+)",
+  "(4D)",
+  "(4D+)",
+  "HC-2",
+  "HC-3",
+  "HC-4",
+  "HC-5",
+];
 const SERIES_OPTIONS: SeriesCode[] = ["A", "B", "C", "D", "E", "F", "G"];
 const DAYS_FILTER_OPTIONS = [7, 15, 21, 30, 45, 60] as const;
 const SORT_OPTIONS = ["default", "confronto-asc", "confronto-desc", "apx-desc", "apx-asc"] as const;
@@ -242,6 +256,26 @@ export default async function MethodsConfrontosPage({
             {selectedMethod === "(4D)" ? (
               <p className="mt-1 max-w-2xl text-sm text-ink/55">
                 O metodo conta o jogo atual quando os 4 jogos anteriores contra jogador2 sao sem vencer, com pelo menos 1 derrota nessa sequencia.
+              </p>
+            ) : null}
+            {selectedMethod === "HC-2" ? (
+              <p className="mt-1 max-w-2xl text-sm text-ink/55">
+                O metodo conta o jogo atual quando, na mesma J do confronto, o jogador chega com saldo exato de 2 vitorias a menos contra o adversario. Empates nao alteram o saldo.
+              </p>
+            ) : null}
+            {selectedMethod === "HC-3" ? (
+              <p className="mt-1 max-w-2xl text-sm text-ink/55">
+                O metodo conta o jogo atual quando, na mesma J do confronto, o jogador chega com saldo exato de 3 vitorias a menos contra o adversario.
+              </p>
+            ) : null}
+            {selectedMethod === "HC-4" ? (
+              <p className="mt-1 max-w-2xl text-sm text-ink/55">
+                O metodo conta o jogo atual quando, na mesma J do confronto, o jogador chega com saldo exato de 4 vitorias a menos contra o adversario.
+              </p>
+            ) : null}
+            {selectedMethod === "HC-5" ? (
+              <p className="mt-1 max-w-2xl text-sm text-ink/55">
+                O metodo conta o jogo atual quando, na mesma J do confronto, o jogador chega com saldo exato de 5 vitorias a menos contra o adversario.
               </p>
             ) : null}
           </div>

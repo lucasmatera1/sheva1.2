@@ -1,0 +1,172 @@
+[
+  {
+    "name": "rmbs",
+    "value": "3",
+    "domain": "www.bet365.bet.br",
+    "path": "/",
+    "expires": 1790273627,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "aaat",
+    "value": "di=72cf1277-7213-4fb0-b9b5-5ea334171c4b&ts=25-03-2027 09:50:29&v=2&am=0&at=b9f5defc-dbb8-4cd3-b477-2717669bdc9d&un=&ue=matheush.fernandesp@gmail.com",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1775292627,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "aps03",
+    "value": "lng=33&ct=28&cst=0",
+    "domain": "members.bet365.bet.br",
+    "path": "/",
+    "expires": 1808995126,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "usdi",
+    "value": "uqid=6A18315F-F4B9-4DCD-8493-B1646B947472",
+    "domain": "members.bet365.bet.br",
+    "path": "/",
+    "expires": 1808995126,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "cc",
+    "value": "1",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1790329293,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "cc2",
+    "value": "p=1&m=1",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1790329293,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "pers",
+    "value": "id=675d38d7-395f-4be2-aa86-c5e3fc38d033&pc=21&username=matheushfernandesp",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1809009656,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "aps03",
+    "value": "ao=1&cf=E&cg=0&cst=556&ct=28&hd=Y&lng=33&oty=2&tt=2&tzi=16",
+    "domain": "www.bet365.bet.br",
+    "path": "/",
+    "expires": 1809081284.953889,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "swt",
+    "value": "AZZ1D//D6RCF7Pa7tIRJVP7D4rf0FUNauoM4aLaeXvx5MyMi76k8SqKxrXhiYUObFLuS+FHc1noWACGS0dLZ0fPKo6bB/VZ7P2Hm+0yWvH9jxbTcjatLiO/Ins/M1hIIMMQ0ecKgoaTEfCbaPqFqQUTkpKN9ckH9OFcXHkEenLPXKEhK91ZYFsev3iPU6pfO",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1775122484.953822,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "_ga",
+    "value": "GA1.1.264786199.1774521290",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1809081290.150785,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_ga_7FHE84QMGK",
+    "value": "GS2.1.s1774521290$o1$g0$t1774521293$j57$l0$h0",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1809081293.098531,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "__cf_bm",
+    "value": "Qzgf.FMXIc36Wgi7oIKkSQyVuOv_mD5EL6uydvfmL9A-1774521291-1.0.1.1-F3Gou0qYFeMfQqA_QC3DfGhRS3qcH9alLtq37AheEKfXGYLMLm_gFa.PtSxTMxvckpoOznspFZ2zsIA181goUXqmxOIpSabOJofgANwldPg",
+    "domain": ".365lpodds.com",
+    "path": "/",
+    "expires": 1774523089.048451,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "__cf_bm",
+    "value": "D5wrdnKCkt43JEFnJgm0c645LmLC6mQtHXHI0WkPvHg-1774521750-1.0.1.1-oIm6y0u1GZM.MfKLWhPCiXjgBE1l1qirt_WdeHsYTvGeAgBvlK_dtpfpjJ6r2MfccmrM0O5cBprk04TGS.Dp421M4qFz3t6AW6d0bUR6fYk",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": 1774523548.254078,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "usdi",
+    "value": "uqid=6A18315F-F4B9-4DCD-8493-B1646B947472",
+    "domain": "www.bet365.bet.br",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "gwt",
+    "value": "Ac4dkX7C8XPusi70JLnxtcx1mkfV+2XWnJOMClYfMOX4+F5eVpqFKCaIRxK1D0/wCih9FAPffhiIAEJyPSiLbYTaVoeoJ1CCCMPz04QtGF7ZrKYxphZZPH3cK3IAEKBlJkrFI6NaPTCT97GIZUO82KT+RWyDFaC7nhnj5FpXkDuTvoyi/hOe8s/pSIRyQWhBPXXka0kvdUB/HP5LS5K/OD92eI3ahTL5v2xOHq2mE5zyq69+cvZAHNP7YfUCQuOSZ4AOhC2VEhBmrURqSymWbSo=",
+    "domain": "www.bet365.bet.br",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Strict"
+  },
+  {
+    "name": "pstk",
+    "value": "BD9E21876481D74FA6544245615EEB31000003",
+    "domain": ".bet365.bet.br",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "session",
+    "value": "lgs=0",
+    "domain": "www.bet365.bet.br",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  }
+]

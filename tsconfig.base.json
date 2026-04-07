@@ -16,6 +16,7 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "allowImportingTsExtensions": true,
+    "noEmit": true,
     "paths": {
       "@sheva/shared": [
         "packages/shared/src/index.ts"

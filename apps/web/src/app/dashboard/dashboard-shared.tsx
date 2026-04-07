@@ -3,6 +3,7 @@ import { AppShell, SurfaceCard } from "../../components/shell/app-shell";
 import { fetchApi } from "../../lib/api";
 import { formatDate, formatNumber, formatPercent } from "../../lib/format";
 import { getLeagueUi } from "../../lib/league-ui";
+import { DashboardGtView } from "./dashboard-gt-view";
 import { DashboardPlayerTable } from "./dashboard-player-table";
 import { DashboardRefreshButton } from "./dashboard-refresh-button";
 
@@ -119,17 +120,6 @@ type DashboardRecentMatchEntry = {
 const GT_SERIES_ORDER = ["A", "B", "C", "D", "E", "F", "G"] as const;
 const DASHBOARD_SNAPSHOT_TIMEOUT_MS = 0;
 
-type GtPastRow = {
-  key: string;
-  dayLabel: string;
-  confrontationLabel: string;
-  sequence: DashboardSequenceResult[];
-  apx: number;
-  matches: DashboardRecentMatchEntry[];
-  firstPlayedAt: string;
-  latestPlayedAt: string;
-};
-
 type GtFutureRow = {
   key: string;
   confrontationLabel: string;
@@ -137,25 +127,8 @@ type GtFutureRow = {
   apx: number | null;
   fixturePlayedAt: string;
   seasonId: number | null;
+  groupLabel?: string | null;
 };
-
-function getSequenceClass(result: DashboardSequenceResult) {
-  if (result === "W") {
-    return "bg-[#20352e] text-white";
-  }
-
-  if (result === "L") {
-    return "bg-[#7a3f34] text-white";
-  }
-
-  return "bg-[#c6b487] text-ink";
-}
-
-function formatMatchDay(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-  }).format(new Date(value));
-}
 
 function buildConfrontationParticipants(playerA: string, playerB: string) {
   return [playerA, playerB].sort((left, right) => left.localeCompare(right, "pt-BR", { sensitivity: "base" }));
@@ -202,57 +175,6 @@ function getGtSeriesCode(label?: string | null) {
   return GT_SERIES_ORDER.includes(groupCode) ? groupCode : null;
 }
 
-function buildGtPastRows(matches: DashboardRecentMatchEntry[]) {
-  return Array.from(
-    matches.reduce((map, match) => {
-      const pairKey = buildConfrontationKey(match.homePlayer, match.awayPlayer);
-      const [playerA, playerB] = buildConfrontationParticipants(match.homePlayer, match.awayPlayer);
-      const dayLabel = formatMatchDay(match.playedAt);
-      const rowKey = `${dayLabel}|${pairKey}`;
-      const current =
-        map.get(rowKey) ??
-        ({
-          key: rowKey,
-          dayLabel,
-          confrontationLabel: `${playerA} x ${playerB}`,
-          sequence: [] as DashboardSequenceResult[],
-          apx: 0,
-          matches: [] as DashboardRecentMatchEntry[],
-          firstPlayedAt: match.playedAt,
-          latestPlayedAt: match.playedAt,
-        } satisfies GtPastRow);
-
-      current.matches.push(match);
-      if (new Date(match.playedAt).getTime() < new Date(current.firstPlayedAt).getTime()) {
-        current.firstPlayedAt = match.playedAt;
-      }
-
-      if (new Date(match.playedAt).getTime() > new Date(current.latestPlayedAt).getTime()) {
-        current.latestPlayedAt = match.playedAt;
-      }
-
-      map.set(rowKey, current);
-      return map;
-    }, new Map<string, GtPastRow>()),
-  )
-    .map(([, row]) => {
-      const orderedMatches = [...row.matches].sort((left, right) => new Date(left.playedAt).getTime() - new Date(right.playedAt).getTime());
-      const perspectivePlayer = row.confrontationLabel.split(" x ")[0] ?? orderedMatches[0]?.homePlayer ?? "";
-      const sequence = orderedMatches.map((match) => getPerspectiveResult(match, perspectivePlayer));
-      const wins = sequence.filter((result) => result === "W").length;
-
-      return {
-        ...row,
-        matches: orderedMatches,
-        firstPlayedAt: orderedMatches[0]?.playedAt ?? row.firstPlayedAt,
-        latestPlayedAt: orderedMatches[orderedMatches.length - 1]?.playedAt ?? row.latestPlayedAt,
-        sequence,
-        apx: sequence.length ? (wins / sequence.length) * 100 : 0,
-      } satisfies GtPastRow;
-    })
-    .sort((left, right) => new Date(left.firstPlayedAt).getTime() - new Date(right.firstPlayedAt).getTime());
-}
-
 function buildGtFutureRows(fixtures: DashboardLeagueSnapshotResponse["fixtures"], matches: DashboardRecentMatchEntry[]) {
   const matchesByPair = matches.reduce((map, match) => {
     const pairKey = buildConfrontationKey(match.homePlayer, match.awayPlayer);
@@ -276,6 +198,7 @@ function buildGtFutureRows(fixtures: DashboardLeagueSnapshotResponse["fixtures"]
         apx: sequence.length ? (wins / sequence.length) * 100 : null,
         fixturePlayedAt: fixture.playedAt,
         seasonId: fixture.seasonId,
+        groupLabel: fixture.groupLabel ?? null,
       } satisfies GtFutureRow;
     })
     .sort((left, right) => new Date(left.fixturePlayedAt).getTime() - new Date(right.fixturePlayedAt).getTime());
@@ -383,63 +306,28 @@ async function DashboardLeaguePage({
   const normalizedSelectedGroup = getGtSeriesCode(selectedGroup ?? null);
   const resolvedSelectedDayKey = selectedDayKey ?? data?.currentWindow.dayKey;
   const availableGroups = isGtLeague ? GT_SERIES_ORDER.map((group) => group) : [];
-  const filteredPlayers = data
-    ? normalizedSelectedGroup
-      ? data.players.filter((player) => getGtSeriesCode(player.leagueGroup) === normalizedSelectedGroup)
-      : data.players
-    : [];
-  const filteredFixtures = data
-    ? normalizedSelectedGroup
-      ? data.fixtures.filter((fixture) => getGtSeriesCode(fixture.groupLabel) === normalizedSelectedGroup)
-      : data.fixtures
-    : [];
-  const filteredRecentMatches = data
-    ? Array.from(
-        filteredPlayers
-          .flatMap((player) =>
-            player.recentMatches.map((match) => ({
-              ...match,
-              groupLabel: player.leagueGroup ?? null,
-            })),
-          )
-          .reduce((map, match) => {
-            if (!map.has(match.id)) {
-              map.set(match.id, match);
-            }
+  const gtRecentMatches =
+    isGtLeague && data
+      ? Array.from(
+          data.players
+            .flatMap((player) =>
+              player.recentMatches.map((match) => ({
+                ...match,
+                groupLabel: player.leagueGroup ?? null,
+              })),
+            )
+            .reduce((map, match) => {
+              if (!map.has(match.id)) {
+                map.set(match.id, match);
+              }
 
-            return map;
-          }, new Map<string, DashboardRecentMatchEntry>())
-          .values(),
-      ).sort((left, right) => new Date(right.playedAt).getTime() - new Date(left.playedAt).getTime())
-    : [];
-  const gtPlayerRows = [...filteredPlayers].sort((left, right) => left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" }));
-  const gtPastRows = buildGtPastRows(filteredRecentMatches);
-  const gtFutureRows = buildGtFutureRows(filteredFixtures, filteredRecentMatches);
+              return map;
+            }, new Map<string, DashboardRecentMatchEntry>())
+            .values(),
+        ).sort((left, right) => new Date(right.playedAt).getTime() - new Date(left.playedAt).getTime())
+      : [];
+  const gtFutureRows = isGtLeague && data ? buildGtFutureRows(data.fixtures, gtRecentMatches) : [];
 
-  const buildDashboardHref = (view: DashboardViewMode, group?: string, dayKey?: string) => {
-    const params = new URLSearchParams();
-
-    if (refreshToken) {
-      params.set("ts", refreshToken);
-    }
-
-    if (view !== "recent") {
-      params.set("view", view);
-    }
-
-    if (group) {
-      params.set("group", group);
-    }
-
-    if (dayKey) {
-      params.set("day", dayKey);
-    }
-
-    const query = params.toString();
-    return query ? `${activeRoutePath}?${query}` : activeRoutePath;
-  };
-
-  const formatSeriesLabel = (group: string) => `Serie ${group.trim().toUpperCase()}`;
   const shouldAutoRefreshUnavailableSnapshot = Boolean(
     data?.warning &&
     data.totals.currentWindowPlayedMatches === 0 &&
@@ -511,133 +399,17 @@ async function DashboardLeaguePage({
           </SurfaceCard>
 
           {isGtLeague ? (
-            <SurfaceCard>
-              <div className="flex flex-col gap-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-brand-strong">Series da liga</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {availableGroups.map((group) => (
-                      <Link
-                        key={group}
-                        href={buildDashboardHref(selectedView, group, resolvedSelectedDayKey)}
-                        className={`inline-flex rounded-full border px-4 py-2 text-sm font-semibold transition ${normalizedSelectedGroup === group ? "border-transparent bg-[#20352e] text-white" : "border-ink/10 bg-white/75 text-ink/70 hover:border-ink/20 hover:text-ink"}`}
-                      >
-                        {formatSeriesLabel(group)}
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-brand-strong">Dias</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {data.availableDays.map((day) => (
-                      <Link
-                        key={day.dayKey}
-                        href={buildDashboardHref(selectedView, normalizedSelectedGroup ?? undefined, day.dayKey)}
-                        className={`inline-flex rounded-full border px-4 py-2 text-sm font-semibold transition ${resolvedSelectedDayKey === day.dayKey ? "border-transparent bg-[#20352e] text-white" : "border-ink/10 bg-white/75 text-ink/70 hover:border-ink/20 hover:text-ink"}`}
-                      >
-                        {day.dayLabel}
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-brand-strong">Visualizacao</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Link
-                      href={buildDashboardHref("recent", normalizedSelectedGroup ?? undefined, resolvedSelectedDayKey)}
-                      className={`inline-flex rounded-full border px-4 py-2 text-sm font-semibold transition ${selectedView === "recent" ? "border-transparent bg-[#20352e] text-white" : "border-ink/10 bg-white/75 text-ink/70 hover:border-ink/20 hover:text-ink"}`}
-                    >
-                      Jogos passados
-                    </Link>
-                    <Link
-                      href={buildDashboardHref("future", normalizedSelectedGroup ?? undefined, resolvedSelectedDayKey)}
-                      className={`inline-flex rounded-full border px-4 py-2 text-sm font-semibold transition ${selectedView === "future" ? "border-transparent bg-[#20352e] text-white" : "border-ink/10 bg-white/75 text-ink/70 hover:border-ink/20 hover:text-ink"}`}
-                    >
-                      Jogos futuros
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            </SurfaceCard>
-          ) : null}
-
-          {isGtLeague ? (
-            selectedView === "future" ? (
-              <SurfaceCard>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-brand-strong">Jogos futuros</p>
-                  <p className="mt-2 text-sm text-ink/65">Confronto, sequencia do dia e Apx da serie selecionada.</p>
-                </div>
-
-                <div className="mt-6 min-w-0">
-                  {gtFutureRows.length ? (
-                    <div className="overflow-hidden rounded-[1.1rem] border border-ink/10 bg-white/72">
-                      <div className="hidden grid-cols-[1.2fr_1.6fr_0.45fr] gap-3 border-b border-ink/10 bg-white/70 px-4 py-3 text-[11px] uppercase tracking-[0.16em] text-brand-strong md:grid">
-                        <span>Confronto</span>
-                        <span>Sequencia</span>
-                        <span className="text-right">Apx</span>
-                      </div>
-                      <div>
-                        {gtFutureRows.map((fixture) => (
-                          <article key={fixture.key} className="grid gap-3 border-b border-ink/10 px-4 py-4 text-sm text-ink/78 last:border-b-0 md:grid-cols-[1.2fr_1.6fr_0.45fr] md:items-center md:gap-3">
-                            <div>
-                              <p className="font-semibold text-ink">{fixture.confrontationLabel}</p>
-                              <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-ink/48">{formatDate(fixture.fixturePlayedAt)} | Temporada {fixture.seasonId ?? "-"}</p>
-                            </div>
-                            <div>
-                              {fixture.sequence.length ? (
-                                <>
-                                  <div className="flex flex-wrap gap-2">
-                                    {fixture.sequence.map((result, index) => (
-                                      <span key={`${fixture.key}-${index}`} className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full text-[10px] font-semibold ${getSequenceClass(result)}`}>
-                                        {result}
-                                      </span>
-                                    ))}
-                                  </div>
-                                  <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-ink/48">Historico do dia no mesmo J</p>
-                                </>
-                              ) : (
-                                <p className="text-xs text-ink/55">Sem historico anterior no dia.</p>
-                              )}
-                            </div>
-                            <div className="text-left md:text-right">
-                              <span className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${fixture.apx === null ? "bg-white text-ink/55 border border-ink/10" : "bg-[#20352e] text-white"}`}>
-                                {fixture.apx === null ? "-" : formatPercent(fixture.apx, 0)}
-                              </span>
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-[1.1rem] border border-dashed border-ink/15 bg-white/45 px-4 py-5 text-sm text-ink/60">
-                      Nenhum fixture futuro encontrado para este filtro.
-                    </div>
-                  )}
-                </div>
-              </SurfaceCard>
-            ) : (
-              <SurfaceCard>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-brand-strong">Jogos passados</p>
-                  <p className="mt-2 text-sm text-ink/65">Sequencia completa do dia por player na serie selecionada, com expansao de jogos e historico.</p>
-                </div>
-
-                <div className="mt-6 min-w-0">
-                  {filteredPlayers.length ? (
-                    <DashboardPlayerTable players={filteredPlayers} leagueType={data.leagueType} />
-                  ) : (
-                    <div className="rounded-[1.2rem] border border-dashed border-ink/15 bg-white/45 px-5 py-8 text-sm text-ink/60">
-                      Nenhum jogo recente encontrado para este filtro da GT League.
-                    </div>
-                  )}
-                </div>
-
-              </SurfaceCard>
-            )
+            <DashboardGtView
+              activeRoutePath={activeRoutePath}
+              availableDays={data.availableDays}
+              availableGroups={availableGroups}
+              initialSelectedDayKey={resolvedSelectedDayKey}
+              initialSelectedGroup={normalizedSelectedGroup ?? undefined}
+              initialSelectedView={selectedView}
+              refreshToken={refreshToken}
+              players={data.players}
+              futureRows={gtFutureRows}
+            />
           ) : (
             <>
               <SurfaceCard>

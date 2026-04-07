@@ -1,35 +1,101 @@
 import { env } from "./core/env";
+import { createLogger } from "./core/logger";
 import { app } from "./app";
-import { startAlertsLocalBackupRunner, startAlertsRunner } from "./modules/alerts/alerts.runner";
+
+const log = createLogger("server");
+import {
+  startAlertsLocalBackupRunner,
+  startAlertsRunner,
+} from "./modules/alerts/alerts.runner";
 import { startTelegramCommandListener } from "./modules/alerts/alerts.telegram-commands";
 import { AlertsService } from "./modules/alerts/alerts.service";
+import { startPortalGTLiveTableRunner } from "./modules/portal/portal-gt-live-table.service";
+import { startPortalLiveFeedRunner } from "./modules/portal/portal-live-feed.service";
+import { startPortalMethodOccurrencesSyncRunner } from "./modules/portal/portal-method-occurrences.service";
+import { startPortalGTPanoramaRunner } from "./modules/portal/portal-panorama.service";
+import { startPortalGTDisparityRunner } from "./modules/portal/portal-disparity.service";
+
+// ---------------------------------------------------------------------------
+// Global crash handlers – keep the process alive on stray rejections/errors
+// ---------------------------------------------------------------------------
+process.on("uncaughtException", (error) => {
+  log.fatal({ err: error }, "uncaughtException – a API vai encerrar.");
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  log.warn({ err: reason }, "unhandledRejection – a API segue ativa.");
+});
 
 const server = app.listen(env.PORT);
 
 server.once("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {
-    console.error(`Porta ${env.PORT} ja esta em uso. Mantenha apenas uma instancia da API rodando.`);
+    log.fatal(
+      { port: env.PORT },
+      "Porta ja esta em uso. Mantenha apenas uma instancia da API rodando.",
+    );
     process.exit(1);
   }
 
-  console.error("Falha ao iniciar a API", error);
+  log.fatal({ err: error }, "Falha ao iniciar a API");
   process.exit(1);
 });
 
 server.once("listening", async () => {
-  console.log(`API online na porta ${env.PORT}`);
+  log.info({ port: env.PORT }, "API online");
 
   const alertsService = new AlertsService();
   try {
-    const bootstrapResult = await alertsService.bootstrapVolatileRulesFromLocalBackup();
+    const bootstrapResult =
+      await alertsService.bootstrapVolatileRulesFromLocalBackup();
     if (bootstrapResult.restored) {
-      console.log(`Regras de alertas restauradas do backup local no startup: ${bootstrapResult.rulesCount}`);
+      log.info(
+        { rulesCount: bootstrapResult.rulesCount },
+        "Regras de alertas restauradas do backup local no startup",
+      );
     }
   } catch (error) {
-    console.error("Falha ao inicializar alertas no bootstrap; API seguira ativa sem bloquear rotas nao relacionadas.", error);
+    log.error(
+      { err: error },
+      "Falha ao inicializar alertas no bootstrap; API seguira ativa sem bloquear rotas nao relacionadas.",
+    );
   }
 
   startAlertsRunner();
   startAlertsLocalBackupRunner();
-  startTelegramCommandListener();
+  startPortalGTLiveTableRunner();
+  startPortalGTPanoramaRunner();
+  startPortalGTDisparityRunner();
+  startPortalLiveFeedRunner();
+  startPortalMethodOccurrencesSyncRunner();
+  const telegramCommandListenerDisabled = ["1", "true", "yes"].includes(
+    String(process.env.DISABLE_TELEGRAM_COMMAND_LISTENER ?? "").toLowerCase(),
+  );
+
+  if (telegramCommandListenerDisabled) {
+    log.info("Listener embutido de comandos Telegram desativado por ambiente.");
+  } else {
+    startTelegramCommandListener();
+  }
 });
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown – let PM2/systemd stop the process cleanly
+// ---------------------------------------------------------------------------
+function gracefulShutdown(signal: string) {
+  log.info({ signal }, "Sinal recebido – encerrando servidor HTTP...");
+  server.close(() => {
+    log.info("Servidor HTTP encerrado. Saindo.");
+    process.exit(0);
+  });
+
+  // Force exit after 10 seconds if connections hang
+  setTimeout(() => {
+    log.error("Timeout de 10s atingido – forcando saida.");
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.once("SIGINT", () => gracefulShutdown("SIGINT"));

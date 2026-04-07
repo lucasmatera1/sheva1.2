@@ -6,23 +6,40 @@ const port = Number(process.env.PORT || 4003);
 await ensurePortAvailable(port);
 
 const command = process.platform === "win32" ? "npx.cmd" : "npx";
-const child = spawn(command, ["tsx", "watch", "src/server.ts"], {
+const apiChild = spawn(command, ["tsx", "watch", "src/server.ts"], {
   stdio: "inherit",
   cwd: process.cwd(),
-  env: process.env,
+  env: {
+    ...process.env,
+    DISABLE_TELEGRAM_COMMAND_LISTENER: "1",
+  },
   shell: process.platform === "win32",
 });
+const telegramChild = spawn(
+  command,
+  ["tsx", "watch", "scripts/telegram-command-listener.ts"],
+  {
+    stdio: "inherit",
+    cwd: process.cwd(),
+    env: process.env,
+    shell: process.platform === "win32",
+  },
+);
 
 const terminateChild = (signal) => {
-  if (!child.killed) {
-    child.kill(signal);
+  if (!apiChild.killed) {
+    apiChild.kill(signal);
+  }
+
+  if (!telegramChild.killed) {
+    telegramChild.kill(signal);
   }
 };
 
 process.on("SIGINT", () => terminateChild("SIGINT"));
 process.on("SIGTERM", () => terminateChild("SIGTERM"));
 
-child.on("exit", (code, signal) => {
+apiChild.on("exit", (code, signal) => {
   if (signal) {
     process.kill(process.pid, signal);
     return;
@@ -31,9 +48,25 @@ child.on("exit", (code, signal) => {
   process.exit(code ?? 0);
 });
 
-child.on("error", (error) => {
+apiChild.on("error", (error) => {
   console.error(`[api-dev] Falha ao iniciar tsx watch: ${error.message}`);
   process.exit(1);
+});
+
+telegramChild.on("exit", (code, signal) => {
+  if (signal || apiChild.killed) {
+    return;
+  }
+
+  console.error(
+    `[api-dev] Listener dedicado de Telegram encerrou inesperadamente (${signal ?? code ?? "sem codigo"}).`,
+  );
+});
+
+telegramChild.on("error", (error) => {
+  console.error(
+    `[api-dev] Falha ao iniciar listener dedicado de Telegram: ${error.message}`,
+  );
 });
 
 function ensurePortAvailable(targetPort) {

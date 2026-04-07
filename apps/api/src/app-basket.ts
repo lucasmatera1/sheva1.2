@@ -1,6 +1,9 @@
 import cors from "cors";
 import express from "express";
+import { createLogger } from "./core/logger";
 import { getDatabaseHealth } from "./core/database";
+
+const log = createLogger("http-basket");
 import { analyticsRouter } from "./modules/analytics/analytics.routes";
 import { dashboardRouter } from "./modules/dashboard/dashboard.routes";
 import { playersRouter } from "./modules/players/players.routes";
@@ -19,7 +22,12 @@ basketApp.get("/api/health", (_request, response) => {
 basketApp.get("/api/health/db", async (_request, response, next) => {
   try {
     const database = await getDatabaseHealth();
-    response.json({ status: database.connected || database.mode === "mock" ? "ok" : "degraded", database, scope: "basket" });
+    response.json({
+      status:
+        database.connected || database.mode === "mock" ? "ok" : "degraded",
+      database,
+      scope: "basket",
+    });
   } catch (error) {
     next(error);
   }
@@ -31,10 +39,17 @@ basketApp.use("/api/players", playersRouter);
 basketApp.use("/api/h2h", h2hRouter);
 basketApp.use("/api/disparity", disparityRouter);
 
-basketApp.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-  console.error(error);
-  response.status(500).json({
-    message: "Erro interno no servidor",
-    scope: "basket",
-  });
-});
+basketApp.use(
+  (
+    error: unknown,
+    _request: express.Request,
+    response: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    log.error({ err: error }, "Erro interno no servidor");
+    response.status(500).json({
+      message: "Erro interno no servidor",
+      scope: "basket",
+    });
+  },
+);
