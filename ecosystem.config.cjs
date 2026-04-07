@@ -6,7 +6,7 @@ module.exports = {
       name: "sheva-api",
       cwd: "./apps/api",
       script: "dist/src/server.js",
-      node_args: "--max-old-space-size=1024 --env-file=../../.env",
+      node_args: "--max-old-space-size=2048 --env-file=../../.env",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
