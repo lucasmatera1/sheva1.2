@@ -5,8 +5,7 @@ module.exports = {
     {
       name: "sheva-api",
       cwd: "./apps/api",
-      script: "src/server.ts",
-      interpreter: "node",
+      script: "dist/src/server.js",
       node_args: "--import tsx --env-file=../../.env",
       instances: 1,
       autorestart: true,
