@@ -64,11 +64,16 @@ server.once("listening", async () => {
 
   startAlertsRunner();
   startAlertsLocalBackupRunner();
-  startPortalGTLiveTableRunner();
-  startPortalGTPanoramaRunner();
-  startPortalGTDisparityRunner();
-  startPortalLiveFeedRunner();
-  startPortalMethodOccurrencesSyncRunner();
+
+  // Stagger heavy portal runners to avoid concurrent memory spikes.
+  // Each runner does large Prisma queries on startup; running them all at once
+  // can push the process past 3GB and block the event loop for minutes.
+  const STAGGER_MS = 15_000;
+  setTimeout(() => startPortalGTLiveTableRunner(), STAGGER_MS * 0);
+  setTimeout(() => startPortalGTPanoramaRunner(), STAGGER_MS * 1);
+  setTimeout(() => startPortalGTDisparityRunner(), STAGGER_MS * 2);
+  setTimeout(() => startPortalLiveFeedRunner(), STAGGER_MS * 3);
+  setTimeout(() => startPortalMethodOccurrencesSyncRunner(), STAGGER_MS * 4);
   const telegramCommandListenerDisabled = ["1", "true", "yes"].includes(
     String(process.env.DISABLE_TELEGRAM_COMMAND_LISTENER ?? "").toLowerCase(),
   );
