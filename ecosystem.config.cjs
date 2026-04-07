@@ -24,6 +24,7 @@ module.exports = {
       cwd: "./apps/portal",
       script: "node_modules/.bin/next",
       args: "start --port 3005",
+      node_args: "--env-file=../../.env",
       instances: 1,
       autorestart: true,
       max_restarts: 20,
