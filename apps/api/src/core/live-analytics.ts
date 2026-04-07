@@ -7136,14 +7136,8 @@ export async function getGtPanoramaLive(
           "panorama-live lido do snapshot em disco",
         );
 
-        // Colocar no cache de memória também.
-        disparityDetailCache.data = {
-          ...(disparityDetailCache.data ?? {}),
-          [cacheKey]: snapshot,
-        };
-        disparityDetailCache.expiresAt =
-          Date.now() + DISPARITY_DETAIL_CACHE_TTL_MS;
-
+        // Historical snapshots are served directly from disk — skip the
+        // in-memory cache to avoid accumulating hundreds of MB per day.
         return snapshot;
       }
 
@@ -7515,11 +7509,16 @@ export async function getGtPanoramaLive(
     seriesGroups,
   };
 
-  disparityDetailCache.data = {
-    ...(disparityDetailCache.data ?? {}),
-    [cacheKey]: result,
-  };
-  disparityDetailCache.expiresAt = Date.now() + DISPARITY_DETAIL_CACHE_TTL_MS;
+  // Only cache the current (non-historical) day in memory.  Historical
+  // days are persisted to disk and read from there on demand — keeping them
+  // in the in-memory cache would waste hundreds of MB per day.
+  if (!isHistorical) {
+    disparityDetailCache.data = {
+      ...(disparityDetailCache.data ?? {}),
+      [cacheKey]: result,
+    };
+    disparityDetailCache.expiresAt = Date.now() + DISPARITY_DETAIL_CACHE_TTL_MS;
+  }
 
   try {
     await persistGtPanoramaSnapshot(result);
