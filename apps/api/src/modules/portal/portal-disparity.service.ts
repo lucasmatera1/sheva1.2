@@ -93,7 +93,7 @@ type CanonicalPairEvent = {
 };
 
 const PORTAL_GT_DISPARITY_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
-const PORTAL_GT_DISPARITY_LOOKBACK_DAYS = 120;
+const PORTAL_GT_DISPARITY_LOOKBACK_DAYS = 30;
 const DISPARITY_TIME_ZONE = "America/Sao_Paulo";
 
 let gtDisparityRefreshTimer: NodeJS.Timeout | null = null;
