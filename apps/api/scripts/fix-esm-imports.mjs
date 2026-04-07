@@ -22,13 +22,15 @@ async function* walk(dir) {
 // Match relative imports/exports and dynamic imports that lack .js
 const staticRe = /((?:from|export\s*\*\s*from)\s+['"])(\.\.?\/[^'"]*?)(?<!\.js)(['"])/g;
 const dynamicRe = /(import\s*\(\s*['"])(\.\.?\/[^'"]*?)(?<!\.js)(['"]\s*\))/g;
+const sideEffectRe = /(import\s+['"])(\.\.?\/[^'"]*?)(?<!\.js)(['"])/g;
 
 let fixed = 0;
 for await (const filePath of walk(distDir)) {
   const content = await readFile(filePath, "utf8");
   const replaced = content
     .replace(staticRe, "$1$2.js$3")
-    .replace(dynamicRe, "$1$2.js$3");
+    .replace(dynamicRe, "$1$2.js$3")
+    .replace(sideEffectRe, "$1$2.js$3");
   if (replaced !== content) {
     await writeFile(filePath, replaced, "utf8");
     fixed++;
