@@ -510,14 +510,14 @@ export function startPortalGTDisparityRunner() {
     return;
   }
 
-  void runPortalGTDisparityRefreshSafely();
-
+  // Defer the first heavy run to avoid memory spikes at startup.
+  // Disk snapshots from previous runs are still served in the meantime.
   gtDisparityRefreshTimer = setInterval(() => {
     void runPortalGTDisparityRefreshSafely();
   }, PORTAL_GT_DISPARITY_REFRESH_INTERVAL_MS);
 
   log.info(
     { intervalMs: PORTAL_GT_DISPARITY_REFRESH_INTERVAL_MS },
-    "Snapshots de disparidade da GT League ativos",
+    "Snapshots de disparidade da GT League ativos (primeira execucao diferida)",
   );
 }
