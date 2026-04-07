@@ -6,7 +6,7 @@ module.exports = {
       name: "sheva-api",
       cwd: "./apps/api",
       script: "dist/src/server.js",
-      node_args: "--max-old-space-size=3072 --env-file=../../.env",
+      node_args: "--max-old-space-size=2048 --env-file=../../.env",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
@@ -14,7 +14,7 @@ module.exports = {
       min_uptime: "10s",
       restart_delay: 3000,
       watch: false,
-      max_memory_restart: "3500M",
+      max_memory_restart: "2500M",
       env: {
         NODE_ENV: "production",
       },

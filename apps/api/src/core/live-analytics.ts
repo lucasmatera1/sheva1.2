@@ -7156,9 +7156,20 @@ export async function getGtPanoramaLive(
     }
   }
 
-  const since = isHistorical ? getRecentDaysStart(14) : getRecentDaysStart(3);
+  // For historical days, scope the query to just ±1 day around the requested
+  // dayKey instead of loading 14 days of data. This dramatically reduces memory
+  // since we filter to a single day anyway.
+  let since: Date;
+  let until: Date | undefined;
+  if (isHistorical && requestedDayKey) {
+    const [y, m, d] = requestedDayKey.split("-").map(Number);
+    since = new Date(y, m - 1, d - 1, 0, 0, 0);
+    until = new Date(y, m - 1, d + 1, 23, 59, 59, 999);
+  } else {
+    since = getRecentDaysStart(3);
+  }
   log.debug(
-    { isHistorical, since: since.toISOString() },
+    { isHistorical, since: since.toISOString(), until: until?.toISOString() },
     "panorama-live query range",
   );
   let matches: UnifiedMatch[] = [];
@@ -7168,6 +7179,7 @@ export async function getGtPanoramaLive(
       where: {
         match_kickoff: {
           gte: since,
+          ...(until ? { lte: until } : {}),
         },
         home_score_ft: {
           not: null,

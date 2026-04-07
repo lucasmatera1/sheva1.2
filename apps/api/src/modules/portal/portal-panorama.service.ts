@@ -7,7 +7,7 @@ import { createLogger } from "../../core/logger";
 const log = createLogger("panorama");
 
 const GT_PANORAMA_REFRESH_INTERVAL_MS = 30_000;
-const GT_PANORAMA_HISTORY_DAYS = 14;
+const GT_PANORAMA_HISTORY_DAYS = 5;
 
 let gtPanoramaRefreshTimer: NodeJS.Timeout | null = null;
 let gtPanoramaSyncInProgress = false;
@@ -54,7 +54,7 @@ async function generateHistoricalSnapshots() {
   const dayKeys = getRecentDayKeys(GT_PANORAMA_HISTORY_DAYS);
   log.info(
     { days: dayKeys.length },
-    "Gerando snapshots historicos do panorama...",
+    "Gerando snapshots historicos do panorama (batch)...",
   );
 
   let generated = 0;
@@ -63,6 +63,10 @@ async function generateHistoricalSnapshots() {
     try {
       await getGtPanoramaLive(dayKey);
       generated++;
+
+      // Yield to event loop between each heavy computation so the API stays
+      // responsive and Node can GC intermediate data.
+      await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (error) {
       log.error(
         { dayKey, reason: (error as Error).message },
@@ -97,7 +101,7 @@ export function startPortalGTPanoramaRunner() {
     gtPanoramaHistoryGenerated = true;
     setTimeout(() => {
       void generateHistoricalSnapshots();
-    }, 10_000);
+    }, 30_000);
   }
 
   gtPanoramaRefreshTimer = setInterval(() => {
