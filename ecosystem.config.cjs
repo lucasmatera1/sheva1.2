@@ -14,7 +14,7 @@ module.exports = {
       min_uptime: "10s",
       restart_delay: 3000,
       watch: false,
-      max_memory_restart: "4G",
+      max_memory_restart: "5G",
       env: {
         NODE_ENV: "production",
       },

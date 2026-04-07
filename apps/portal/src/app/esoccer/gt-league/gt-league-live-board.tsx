@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PortalGTLiveTableResponse } from "@/lib/portal-api";
 
 const GT_SERIES = ["ALL", "A", "B", "C", "D", "E", "F", "G"] as const;
-const GT_HISTORY_DAY_OPTIONS = [5, 10, 15, 30, 60] as const;
+const GT_HISTORY_DAY_OPTIONS = [5, 15, 30] as const;
 const GT_SCORELINE_SEPARATOR_AFTER = new Set([3, 9]);
 
 function formatPercent(value: number) {
