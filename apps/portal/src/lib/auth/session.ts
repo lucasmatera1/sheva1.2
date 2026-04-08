@@ -125,7 +125,7 @@ export function getPortalSessionCookieOptions(expires: Date) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.PORTAL_COOKIE_SECURE === "true",
     path: "/",
     expires,
   };
